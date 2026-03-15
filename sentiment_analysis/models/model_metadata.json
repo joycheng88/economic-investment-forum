@@ -1,0 +1,10 @@
+{
+  "created_date": "2026-01-22T18:55:56.249259",
+  "lr_f1_score": 0.0,
+  "nn_f1_score": 0.6666666666666666,
+  "ensemble_f1_score": 0.6666666666666666,
+  "tfidf_features": 19,
+  "vocab_size": 87,
+  "max_sequence_length": 100,
+  "model_description": "GLP-1 Sentiment Analysis - Ensemble Model"
+}
