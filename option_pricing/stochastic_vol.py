@@ -362,6 +362,7 @@ class SABRModel:
         float
             Call option price
         """
+        from scipy.stats import norm
         sigma = self.implied_vol_bbg()
         d1 = (np.log(self.F / self.K) + 0.5 * sigma ** 2 * self.T) / (
             sigma * np.sqrt(self.T)
@@ -369,8 +370,8 @@ class SABRModel:
         d2 = d1 - sigma * np.sqrt(self.T)
         
         call = np.exp(-self.r * self.T) * (
-            self.F * scipy.stats.norm.cdf(d1) - 
-            self.K * scipy.stats.norm.cdf(d2)
+            self.F * norm.cdf(d1) - 
+            self.K * norm.cdf(d2)
         )
         return call
     
