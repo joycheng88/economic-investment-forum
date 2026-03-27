@@ -2,7 +2,7 @@
 
 ## 📋 Project Overview
 
-This is a **production-grade** GLP-1 (Glucagon-like Peptide-1) sentiment analysis system designed to automatically extract sentiment information from text data, construct a trackable sentiment index, and generate predictive signals.
+This is a GLP-1 (Glucagon-like Peptide-1) sentiment analysis system designed to automatically extract sentiment information from text data, construct a trackable sentiment index, and generate predictive signals.
 
 ## 📊 Project Features
 
