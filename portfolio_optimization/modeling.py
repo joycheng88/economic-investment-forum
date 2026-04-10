@@ -42,6 +42,57 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 warnings.filterwarnings('ignore')
 
 
+# ==================== UTILITY FUNCTIONS ====================
+
+def _extract_safe(source: any, *keys: str, default: any = 0):
+    """
+    Safely extract nested values from dicts/objects with fallback fields.
+    
+    Usage:
+        _extract_safe(info, 'currentPrice', 'regularMarketPrice')
+        _extract_safe(df, 'Total Revenue', default=0)
+    """
+    if source is None:
+        return default
+    
+    for key in keys:
+        if isinstance(source, dict):
+            if key in source and source[key] not in (None, ''):
+                val = source[key]
+                if isinstance(val, (int, float)) and val > 0:
+                    return val
+        else:
+            try:
+                if hasattr(source, key):
+                    val = getattr(source, key)
+                    if val not in (None, '') and (not isinstance(val, float) or val > 0):
+                        return val
+            except:
+                pass
+    
+    return default
+
+
+def _extract_financial_field(df, *field_names: str, default: float = 0) -> float:
+    """
+    Extract financial statement field with multiple name attempts.
+    Handles yfinance field name variations.
+    """
+    if df is None or df.empty:
+        return default
+    
+    for field in field_names:
+        if field in df.index:
+            try:
+                val = float(df.loc[field].iloc[0])
+                if val != 0:
+                    return val
+            except:
+                pass
+    
+    return default
+
+
 # ==================== CONSTANTS & BENCHMARKS ====================
 
 # Institutional peer groups (pre-verified)
@@ -78,9 +129,9 @@ INDUSTRY_MARGINS = {
 
 # Macroeconomic assumptions (institutionally sourced)
 DEFAULT_ASSUMPTIONS = {
-    'risk_free_rate': 0.042,  # US 10Y Treasury
-    'market_risk_premium': 0.070,  # Long-term equity premium
-    'terminal_growth': 0.025,  # GDP-like growth
+    'risk_free_rate': 0.042,  # US 10Y Treasury (~4.2%)
+    'market_risk_premium': 0.055,  # Equity risk premium (5.5% is reasonable for 2026)
+    'terminal_growth': 0.035,  # Terminal growth rate (3.5% accounts for inflation + real growth)
     'tax_rate': 0.21,  # US federal corporate tax
 }
 
@@ -94,19 +145,44 @@ def fetch_macroeconomic_assumptions() -> Dict:
     Falls back to defaults if APIs unavailable.
     
     Sources:
-    - US Treasury (10Y yield)
+    - US Treasury ETFs (TLT, SHV)
     - Fed data (risk premiums)
     - Damodaran curves (tax rates by sector)
     """
+    risk_free_rate = None
+    
+    # Try multiple sources for Treasury yield
     try:
-        # Try to fetch US 10Y yield from Yahoo (TLT)
+        # Method 1: Try TLT (20Y Treasury ETF) - most commonly used
         tlt = yf.Ticker('TLT')
-        current_price = tlt.info.get('currentPrice', 4.2)
-        # Approximate 10Y yield from TLT price
-        risk_free_rate = 0.04 + (current_price - 95) * 0.001
-        risk_free_rate = np.clip(risk_free_rate, 0.01, 0.08)
+        tlt_info = tlt.info
+        
+        if tlt_info and 'yield' in tlt_info and tlt_info['yield'] and tlt_info['yield'] > 0:
+            risk_free_rate = float(tlt_info['yield'])
+        elif tlt_info and 'trailingAnnualDividendYield' in tlt_info and tlt_info['trailingAnnualDividendYield'] and tlt_info['trailingAnnualDividendYield'] > 0:
+            risk_free_rate = float(tlt_info['trailingAnnualDividendYield'])
     except:
+        pass
+    
+    # Fallback: Try SHV (3-month Treasury ETF)
+    if not risk_free_rate or risk_free_rate < 0.01:
+        try:
+            shv = yf.Ticker('SHV')
+            shv_info = shv.info
+            
+            if shv_info and 'yield' in shv_info and shv_info['yield'] and shv_info['yield'] > 0:
+                risk_free_rate = float(shv_info['yield'])
+            elif shv_info and 'trailingAnnualDividendYield' in shv_info and shv_info['trailingAnnualDividendYield'] and shv_info['trailingAnnualDividendYield'] > 0:
+                risk_free_rate = float(shv_info['trailingAnnualDividendYield'])
+        except:
+            pass
+    
+    # Fallback to default if all methods fail
+    if not risk_free_rate or risk_free_rate < 0.01:
         risk_free_rate = DEFAULT_ASSUMPTIONS['risk_free_rate']
+    
+    # Sanity check: ensure within reasonable bounds
+    risk_free_rate = np.clip(float(risk_free_rate), 0.01, 0.08)
     
     return {
         'risk_free_rate': risk_free_rate,
@@ -123,7 +199,7 @@ def fetch_financial_data(ticker: str, timeout: int = 10) -> Dict:
     Implements robust error handling and data validation.
     """
     try:
-        stock = yf.Ticker(ticker, session_kwargs={'timeout': timeout})
+        stock = yf.Ticker(ticker)
         info = stock.info
         
         # Fetch historical financial statements
@@ -131,79 +207,79 @@ def fetch_financial_data(ticker: str, timeout: int = 10) -> Dict:
         balance_sheet = stock.balance_sheet
         cash_flow = stock.cashflow
         
-        # Validate critical data
-        if not info or 'currentPrice' not in info and 'regularMarketPrice' not in info:
-            return {'success': False, 'error': f'Missing price data for {ticker}'}
+        # Validate critical data using if statements for field detection
+        if not info:
+            return {'success': False, 'error': f'No data available for {ticker}'}
         
-        current_price = info.get('currentPrice') or info.get('regularMarketPrice', 0)
+        # Current price detection with fallbacks
+        current_price = 0
+        if 'currentPrice' in info and info['currentPrice'] and info['currentPrice'] > 0:
+            current_price = float(info['currentPrice'])
+        elif 'regularMarketPrice' in info and info['regularMarketPrice'] and info['regularMarketPrice'] > 0:
+            current_price = float(info['regularMarketPrice'])
+        elif 'bid' in info and info['bid'] and info['bid'] > 0:
+            current_price = float(info['bid'])
+        
         if current_price <= 0:
             return {'success': False, 'error': f'Invalid current price for {ticker}'}
         
-        # Extract revenue
-        revenue = 0
+        # Revenue extraction with field name variations
+        revenue = _extract_financial_field(income_stmt, 'Total Revenue', 'Revenue', 'Revenues', default=0)
         revenue_history = []
         if income_stmt is not None and not income_stmt.empty:
             if 'Total Revenue' in income_stmt.index:
                 try:
                     revenue_history = income_stmt.loc['Total Revenue'].values
-                    revenue = float(revenue_history[0])
+                except:
+                    pass
+            elif 'Revenue' in income_stmt.index:
+                try:
+                    revenue_history = income_stmt.loc['Revenue'].values
                 except:
                     pass
         
-        # Extract net income
-        net_income = 0
-        try:
-            if income_stmt is not None and 'Net Income' in income_stmt.index:
-                net_income = float(income_stmt.loc['Net Income'].iloc[0])
-        except:
-            pass
+        # Net income extraction with alternatives
+        net_income = _extract_financial_field(income_stmt, 'Net Income', 'Net Earnings', 'Net Income Applicable To Common Shareholders', default=0)
         
-        # Extract operating income
-        operating_income = 0
-        try:
-            if income_stmt is not None and 'Operating Income' in income_stmt.index:
-                operating_income = float(income_stmt.loc['Operating Income'].iloc[0])
-        except:
-            pass
+        # Operating income extraction
+        operating_income = _extract_financial_field(income_stmt, 'Operating Income', 'Operating Earnings', 'EBIT', default=0)
         
-        # Extract FCF
+        # FCF extraction with multiple field names
         fcf = None
-        try:
-            if cash_flow is not None and 'Free Cash Flow' in cash_flow.index:
-                fcf = float(cash_flow.loc['Free Cash Flow'].iloc[0])
-        except:
-            pass
+        if cash_flow is not None:
+            if 'Free Cash Flow' in cash_flow.index:
+                try:
+                    fcf = float(cash_flow.loc['Free Cash Flow'].iloc[0])
+                except:
+                    pass
+            elif 'Free Cash Flow To Equity' in cash_flow.index:
+                try:
+                    fcf = float(cash_flow.loc['Free Cash Flow To Equity'].iloc[0])
+                except:
+                    pass
         
-        # Extract capex and operating cash flow for FCF calculation
+        # Extract capex with field name variations
         capex = 0
-        ocf = 0
-        try:
-            if cash_flow is not None:
-                if 'Capital Expenditures' in cash_flow.index:
-                    capex = abs(float(cash_flow.loc['Capital Expenditures'].iloc[0]))
-                if 'Operating Cash Flow' in cash_flow.index:
-                    ocf = float(cash_flow.loc['Operating Cash Flow'].iloc[0])
-        except:
-            pass
+        if cash_flow is not None:
+            capex = _extract_financial_field(cash_flow, 'Capital Expenditure', 'Capital Expenditures', 'CapEx', 'Purchases of Property, Plant, and Equipment', default=0)
+            capex = abs(capex)  # CapEx is usually negative
+        
+        # Operating cash flow extraction
+        ocf = _extract_financial_field(cash_flow, 'Operating Cash Flow', 'Cash Flow From Continuing Operating Activities', 'Net Cash Provided By Operating Activities', default=0)
         
         # Calculate FCF if not available
         if fcf is None or fcf == 0:
             fcf = ocf - capex if ocf > 0 else net_income * 0.8
         
-        # Extract debt and cash
+        # Extract debt with field name variations
         total_debt = 0
-        try:
-            if balance_sheet is not None and 'Total Debt' in balance_sheet.index:
-                total_debt = float(balance_sheet.loc['Total Debt'].iloc[0])
-        except:
-            pass
+        if balance_sheet is not None:
+            total_debt = _extract_financial_field(balance_sheet, 'Total Debt', 'Total Long-Term Debt', 'Long Term Debt', 'Current And Long-Term Debt', default=0)
         
+        # Extract cash with field name variations
         cash = 0
-        try:
-            if balance_sheet is not None and 'Cash And Cash Equivalents' in balance_sheet.index:
-                cash = float(balance_sheet.loc['Cash And Cash Equivalents'].iloc[0])
-        except:
-            pass
+        if balance_sheet is not None:
+            cash = _extract_financial_field(balance_sheet, 'Cash And Cash Equivalents', 'Cash', 'Cash, Cash Equivalents & Marketable Securities', default=0)
         
         # Calculate historical revenue growth
         revenue_growth = 0.05
@@ -216,17 +292,25 @@ def fetch_financial_data(ticker: str, timeout: int = 10) -> Dict:
             except:
                 pass
         
-        # Beta from yfinance
-        beta = info.get('beta', 1.0) or 1.0
-        if beta <= 0 or beta > 5:  # Sanity check
-            beta = 1.0
+        # Beta extraction with validation
+        beta = 1.0
+        if 'beta' in info and info['beta'] and 0 < info['beta'] <= 5:
+            beta = float(info['beta'])
+        elif 'beta3Year' in info and info['beta3Year'] and 0 < info['beta3Year'] <= 5:
+            beta = float(info['beta3Year'])
+        # Default to 1.0 if invalid
         
-        # Shares outstanding
-        shares_outstanding = info.get('sharesOutstanding', 0)
+        # Shares outstanding with fallbacks
+        shares_outstanding = 0
+        if 'sharesOutstanding' in info and info['sharesOutstanding'] and info['sharesOutstanding'] > 0:
+            shares_outstanding = float(info['sharesOutstanding'])
+        elif 'circulatingSupply' in info and info['circulatingSupply'] and info['circulatingSupply'] > 0:
+            shares_outstanding = float(info['circulatingSupply'])
+        
+        # If still zero, calculate from market cap
         if shares_outstanding <= 0 and current_price > 0:
-            market_cap = info.get('marketCap', 0)
-            if market_cap > 0:
-                shares_outstanding = market_cap / current_price
+            if 'marketCap' in info and info['marketCap'] and info['marketCap'] > 0:
+                shares_outstanding = float(info['marketCap']) / current_price
         
         return {
             'success': True,
@@ -257,6 +341,49 @@ def fetch_financial_data(ticker: str, timeout: int = 10) -> Dict:
     
     except Exception as e:
         return {'success': False, 'error': str(e), 'ticker': ticker}
+
+
+# ==================== DATA VALIDATION ====================
+
+def _validate_financial_data_quality(data: Dict) -> Tuple[bool, str]:
+    """
+    Validate financial data quality and detect currency/scale issues
+    Returns: (is_valid, warning_message)
+    """
+    if not data or not data.get('success'):
+        return False, data.get('error', 'No data available') if data else "No data available"
+    
+    market_cap = data.get('market_cap', 0)
+    if market_cap <= 0:
+        return False, "No market cap data available - likely an ETF or non-equity security"
+    
+    # Check for impossible ratios indicating currency mismatch
+    total_debt = data.get('total_debt', 0)
+    fcf = data.get('fcf', 0)
+    revenue = data.get('revenue', 0)
+    
+    # Debt/Market Cap ratio should typically be 0.1 - 2.0
+    # If > 10x, likely a currency/scale issue
+    if total_debt > 0:
+        debt_ratio = total_debt / market_cap
+        if debt_ratio > 10:
+            return False, f"⚠️  Data quality issue: Debt/Market Cap ratio = {debt_ratio:.1f}x (should be <2x). Financial statements likely in foreign currency (e.g., INR, JPY) not converted to USD. Consider using USD-listed alternatives."
+    
+    # FCF/Market Cap ratio should typically be 0.05 - 1.0
+    # If > 5x, likely a currency issue
+    if fcf and fcf > 0:
+        fcf_ratio = fcf / market_cap
+        if fcf_ratio > 5:
+            return False, f"⚠️  Data quality issue: FCF/Market Cap ratio = {fcf_ratio:.1f}x (should be <1x). Financial statements likely in foreign currency. Consider using USD-listed alternatives."
+    
+    # Revenue/Market Cap ratio should typically be 0.5 - 5.0
+    # If > 15x, likely a currency issue
+    if revenue > 0:
+        revenue_ratio = revenue / market_cap
+        if revenue_ratio > 15:
+            return False, f"⚠️  Data quality issue: Revenue/Market Cap ratio = {revenue_ratio:.1f}x (should be <5x). Financial statements likely in foreign currency. Consider using USD-listed alternatives."
+    
+    return True, ""
 
 
 # ==================== DCF VALUATION ENGINE ====================
@@ -303,6 +430,11 @@ class DCFValuation:
             if not self.financial_data.get('success'):
                 return self.financial_data
             
+            # Validate data quality and detect currency issues
+            is_valid, warning_msg = _validate_financial_data_quality(self.financial_data)
+            if not is_valid:
+                return {'success': False, 'error': warning_msg, 'ticker': self.ticker}
+            
             # Validate critical data
             if self.financial_data.get('current_price', 0) <= 0:
                 return {'success': False, 'error': f'Invalid price data for {self.ticker}'}
@@ -313,6 +445,12 @@ class DCFValuation:
             # Fetch macro assumptions
             macro_assumptions = fetch_macroeconomic_assumptions()
             
+            # Estimate revenue growth if not provided (before validation)
+            estimated_revenue_growth = revenue_growth or self.financial_data.get('revenue_growth', 0.05)
+            if estimated_revenue_growth is None or np.isnan(estimated_revenue_growth):
+                estimated_revenue_growth = 0.05
+            estimated_revenue_growth = np.clip(float(estimated_revenue_growth), -0.10, 0.50)
+            
             # Set assumptions with user overrides and validation
             self.assumptions = {
                 'risk_free_rate': risk_free_rate or macro_assumptions['risk_free_rate'],
@@ -321,7 +459,7 @@ class DCFValuation:
                 'cost_of_debt': cost_of_debt,
                 'terminal_growth': terminal_growth,
                 'forecast_years': forecast_years,
-                'revenue_growth': revenue_growth,
+                'revenue_growth': estimated_revenue_growth,
             }
             
             # Validate assumptions
@@ -343,16 +481,6 @@ class DCFValuation:
                 self.assumptions['terminal_growth'] = min(self.assumptions['terminal_growth'], wacc * 0.8 - 0.001)
             
             self.assumptions['wacc'] = wacc
-            
-            # Estimate revenue growth if not provided
-            if self.assumptions['revenue_growth'] is None:
-                self.assumptions['revenue_growth'] = self.financial_data['revenue_growth']
-            
-            # Ensure revenue growth is reasonable
-            if self.assumptions['revenue_growth'] is None or np.isnan(self.assumptions['revenue_growth']):
-                self.assumptions['revenue_growth'] = 0.05
-            else:
-                self.assumptions['revenue_growth'] = np.clip(float(self.assumptions['revenue_growth']), -0.10, 0.50)
             
             # Project cash flows
             projections = self._project_cash_flows()
@@ -406,7 +534,10 @@ class DCFValuation:
                 'net_debt': float(net_debt),
                 'shares_outstanding': float(shares_outstanding),
                 'projections': projections,
-                'assumptions': self.assumptions,
+                'assumptions': {
+                    **self.assumptions,
+                    'fcf_margin': float(getattr(self, '_fcf_margin_used', 0.10)),
+                },
                 'financial_data': self.financial_data,
                 'valuation_date': datetime.now().isoformat(),
             }
@@ -504,25 +635,38 @@ class DCFValuation:
         try:
             base_revenue = float(self.financial_data.get('revenue', 0))
             base_fcf = float(self.financial_data.get('fcf', 0))
+            operating_income = float(self.financial_data.get('operating_income', 0))
             revenue_growth = float(self.assumptions['revenue_growth']) if self.assumptions['revenue_growth'] else 0.05
             wacc = float(self.assumptions['wacc'])
+            tax_rate = float(self.assumptions['tax_rate'])
             forecast_years = int(self.assumptions['forecast_years'])
             
             # Validate base values
             if base_revenue <= 0:
                 return []
             
-            # Calculate FCF margin
-            if base_revenue > 0 and base_fcf > 0:
-                fcf_margin = base_fcf / base_revenue
-                fcf_margin = np.clip(fcf_margin, 0.02, 0.50)  # Sanity check
+            # Calculate FCF margin using operating income for capital-intensive companies
+            raw_fcf_margin = base_fcf / base_revenue if base_revenue > 0 and base_fcf > 0 else 0.02
+            operating_margin = operating_income / base_revenue if base_revenue > 0 and operating_income > 0 else 0
+            
+            # For companies with low FCF but healthy operating income (capital-intensive):
+            # Use NOPAT-based approach
+            if raw_fcf_margin < 0.03 and operating_margin > 0.05:
+                nopat = operating_income * (1 - tax_rate)
+                fcf_margin = nopat / base_revenue
+                use_nopat = True
             else:
-                # Fallback: estimate from industry
-                sector = self.financial_data.get('sector', 'Technology')
-                fcf_margin = INDUSTRY_MARGINS.get(sector, {}).get('fcf_to_revenue', 0.15)
+                fcf_margin = max(raw_fcf_margin, 0.02)
+                use_nopat = False
+            
+            # Sanity check on margins
+            fcf_margin = np.clip(fcf_margin, 0.02, 0.50)
             
             # Ensure reasonable growth rate
             revenue_growth = np.clip(revenue_growth, -0.10, 0.50)
+            
+            # Store fcf_margin for later use
+            self._fcf_margin_used = fcf_margin
             
             projections = []
             for year in range(1, forecast_years + 1):
@@ -683,6 +827,61 @@ class DCFValuation:
         
         except Exception as e:
             return {}
+    
+    def get_sensitivity_table_pivoted(self) -> pd.DataFrame:
+        """
+        Convert sensitivity dictionary to a proper pivot table DataFrame.
+        Format: WACC on rows (left axis), Growth on columns (top axis), Intrinsic Value in cells
+        
+        Returns: DataFrame formatted for display as a heatmap-style table
+        """
+        if not self.sensitivity_data:
+            return pd.DataFrame()
+        
+        try:
+            # Convert to list of records for pivoting
+            records = []
+            for wacc_key, growth_dict in self.sensitivity_data.items():
+                for growth_key, value in growth_dict.items():
+                    # Parse percentages back to floats for sorting
+                    wacc_val = float(wacc_key.rstrip('%'))
+                    growth_val = float(growth_key.rstrip('%'))
+                    records.append({
+                        'WACC': wacc_val,
+                        'Growth': growth_val,
+                        'Value': value
+                    })
+            
+            if not records:
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(records)
+            
+            # Pivot table: WACC on rows, Growth on columns
+            pivot_df = df.pivot(index='WACC', columns='Growth', values='Value')
+            
+            # Sort columns and index for proper ordering
+            pivot_df = pivot_df.sort_index(axis=0, ascending=False)  # WACC descending (top to bottom)
+            pivot_df = pivot_df.sort_index(axis=1, ascending=True)   # Growth ascending (left to right)
+            
+            # Format values as currency strings with highlighting
+            def format_cell(val):
+                if pd.isna(val) or val == 0:
+                    return "-"
+                return f"${val:,.0f}"
+            
+            # Create a styled version for display
+            display_df = pivot_df.copy()
+            display_df = display_df.applymap(lambda x: format_cell(x))
+            
+            # Set proper row and column names
+            display_df.index.name = "WACC ↓"
+            display_df.columns.name = "Revenue Growth →"
+            
+            return display_df, pivot_df  # Return both display and numeric versions
+        
+        except Exception as e:
+            return pd.DataFrame(), pd.DataFrame()
 
 
 # ==================== COMPARABLE COMPANIES ANALYSIS ====================

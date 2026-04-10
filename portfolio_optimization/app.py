@@ -153,7 +153,7 @@ def load_portfolio_data(tickers, start_date, end_date):
 
 def run_portfolio_optimization(returns, max_weight=0.15, constraints=None):
     """
-    Run all 8 models (including RL and DRO) and return results
+    Run all 8 models and return results
     
     Parameters:
     -----------
@@ -272,7 +272,7 @@ def run_portfolio_optimization(returns, max_weight=0.15, constraints=None):
     except Exception as e:
         st.warning(f"CVaR error: {e}")
     
-    # LASSO (with iterative hard thresholding for sparsity)
+    # LASSO
     try:
         w_lasso = get_lasso_weights(returns, max_weight=max_weight, lasso_penalty=0.01, num_assets_target=10)
         w_lasso = apply_constraints(w_lasso, returns.columns)
@@ -281,18 +281,18 @@ def run_portfolio_optimization(returns, max_weight=0.15, constraints=None):
     except Exception as e:
         st.warning(f"LASSO error: {e}")
 
-    # RL (Reinforcement Learning)
-    # Note: RL is computationally intensive, so we only train if requested or on first run
+    # Reinforcement Learning (RL)
+    # Note: RL is computationally intensive, but now with improved training
     try:
         # Check if we have a cached RL agent for these tickers
         if 'rl_agent' not in st.session_state or 'rl_tickers' not in st.session_state or st.session_state.rl_tickers != list(returns.columns):
-            with st.spinner("Training RL agent (this may take 30-60 seconds)..."):
-                w_rl = get_rl_weights(returns, agent=None, state_extractor=None, n_epochs=5, max_weight=max_weight, long_only=True)
+            with st.spinner("Training improved RL agent (this may take 60-90 seconds with better training)..."):
+                w_rl = get_rl_weights(returns, agent=None, state_extractor=None, n_epochs=30, max_weight=max_weight, long_only=True)
                 # Cache for future use
                 st.session_state.rl_tickers = list(returns.columns)
         else:
-            # Use cached agent (would need to refactor to save agent itself)
-            w_rl = get_rl_weights(returns, agent=None, state_extractor=None, n_epochs=5, max_weight=max_weight, long_only=True)
+            # Use cached agent
+            w_rl = get_rl_weights(returns, agent=None, state_extractor=None, n_epochs=30, max_weight=max_weight, long_only=True)
         
         w_rl = apply_constraints(w_rl, returns.columns)
         vol_rl = portfolio_volatility(w_rl, cov)
@@ -302,7 +302,7 @@ def run_portfolio_optimization(returns, max_weight=0.15, constraints=None):
     except Exception as e:
         st.warning(f"RL error: {e}")
 
-    # DRO (Distributionally Robust Optimization)
+    # Distributionally Robust Optimization (DRO)
     try:
         w_dro = get_dro_weights(
             returns,
@@ -326,10 +326,10 @@ def run_portfolio_optimization(returns, max_weight=0.15, constraints=None):
 # ==================== HOME PAGE ====================
 
 def page_home():
-    st.title("📊 Portfolio Optimization - Model Comparison")
+    st.title("📊 Portfolio Optimization")
     
     st.markdown("""
-    Compare 6 portfolio optimization models with advanced analytics and risk metrics.
+    Compare 8 portfolio optimization models with advanced analytics and risk metrics.
     """)
     
     # Sidebar configuration
@@ -360,20 +360,34 @@ def page_home():
             step=1
         ) / 100
         
+        st.info(
+            "**📌 Home Page Methodology**: One-time portfolio construction with **60% train / 40% test split**. "
+            "Models are optimized on historical training data, then evaluated on held-out test data (last 40%). "
+            "No rebalancing—shows realistic buy-and-hold performance. Compare with 📊 **Rolling Backtest** for historical rolling analysis."
+        )
+        
         # Load button
         if st.button("🔄 Run Analysis", use_container_width=True):
             try:
                 prices, returns = load_portfolio_data(ALL_STOCKS, start_date, end_date)
-                results, cov = run_portfolio_optimization(returns, max_weight)
+                
+                # Split into 60% train / 40% test for realistic out-of-sample performance
+                split_idx = int(len(returns) * 0.6)
+                train_returns = returns.iloc[:split_idx]
+                test_returns = returns.iloc[split_idx:]
+                
+                # Optimize on training data only (not test data)
+                results, cov = run_portfolio_optimization(train_returns, max_weight)
                 
                 st.session_state.data_loaded = True
                 st.session_state.prices = prices
-                st.session_state.returns = returns
+                st.session_state.returns = test_returns  # Store test returns for honest evaluation
+                st.session_state.train_returns = train_returns  # Store train returns for reference
                 st.session_state.results = results
                 st.session_state.cov = cov
                 st.session_state.max_weight = max_weight
                 
-                st.success("✅ Analysis complete!")
+                st.success("✅ Analysis complete! (Out-of-sample evaluation on last 40% of data)")
                 st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
@@ -389,21 +403,33 @@ def page_home():
         st.markdown("---")
         
         results = st.session_state.results
-        returns = st.session_state.returns
+        returns = st.session_state.returns  # This is now test/out-of-sample returns (last 40%)
         cov = st.session_state.cov
         prices = st.session_state.prices
         
+        # Show data split info
+        if 'train_returns' in st.session_state:
+            train_len = len(st.session_state.train_returns)
+            test_len = len(returns)
+            st.info(f"📊 **Evaluation Methodology**: Models trained on first {train_len} days, evaluated on last {test_len} days (out-of-sample)")
+        
         # ===== SECTION 1: SUMMARY METRICS =====
-        st.subheader("📈 Performance & Risk Summary")
+        st.subheader("📈 Performance & Risk Summary (Out-of-Sample)")
+
         
         summary_data = []
+        # Recalculate covariance from TEST data for honest evaluation
+        test_cov = gmv_cov(returns, annualize=True)
+        
         for model_name, data in results.items():
             weights = data['weights'].reindex(returns.columns, fill_value=0.0)
-            vol = data['volatility']
             
-            # Calculate additional metrics
+            # Recalculate volatility using TEST period covariance (not training period)
+            vol_test = portfolio_volatility(weights, test_cov)
+            
+            # Calculate additional metrics using test period
             ann_return = returns.mean() @ weights * 252
-            sharpe = (ann_return - RISK_FREE_RATE) / vol if vol > 0 else 0
+            sharpe = (ann_return - RISK_FREE_RATE) / vol_test if vol_test > 0 else 0
             herfindahl = (weights ** 2).sum()
             num_holdings = int((weights > 1e-4).sum())
             top_weight = weights.max() * 100
@@ -411,7 +437,7 @@ def page_home():
             summary_data.append({
                 'Model': model_name,
                 'Ann. Return': f"{ann_return*100:.2f}%",
-                'Volatility': f"{vol*100:.2f}%",
+                'Volatility': f"{vol_test*100:.2f}%",
                 'Sharpe Ratio': f"{sharpe:.3f}",
                 'Holdings': num_holdings,
                 'HHI': f"{herfindahl:.4f}"
@@ -432,9 +458,10 @@ def page_home():
             return_data = {}
             for m, data in results.items():
                 weights = data['weights'].reindex(returns.columns, fill_value=0.0)
-                vol = data['volatility']
+                # Use test period volatility for consistent evaluation
+                vol_test = portfolio_volatility(weights, test_cov)
                 ann_ret = returns.mean() @ weights * 252
-                vol_data[m] = vol * 100
+                vol_data[m] = vol_test * 100
                 return_data[m] = ann_ret * 100
             
             fig_scatter = px.scatter(
@@ -457,9 +484,10 @@ def page_home():
             sharpe_data = {}
             for m, data in results.items():
                 weights = data['weights'].reindex(returns.columns, fill_value=0.0)
-                vol = data['volatility']
+                # Use test period volatility for consistent Sharpe calculation
+                vol_test = portfolio_volatility(weights, test_cov)
                 ann_ret = returns.mean() @ weights * 252
-                sharpe_data[m] = (ann_ret - RISK_FREE_RATE) / vol if vol > 0 else 0
+                sharpe_data[m] = (ann_ret - RISK_FREE_RATE) / vol_test if vol_test > 0 else 0
             
             colors = ['#636EFA' if s >= 0 else '#EF553B' for s in sharpe_data.values()]
             fig_sharpe = px.bar(
@@ -788,7 +816,7 @@ def page_description():
     **full mathematical derivation**, and **pros/cons**.
     """)
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["GMV", "CAPM", "Black-Litterman", "HRP", "CVaR", "LASSO"])
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(["GMV", "CAPM", "Black-Litterman", "HRP", "CVaR", "LASSO", "RL", "DRO"])
 
     with tab1:
         st.subheader("🔵 Global Minimum Variance (GMV)")
@@ -1033,13 +1061,116 @@ Result: Enforces cardinality constraint $\\text{card}(w) \\le K$ (default $K=10$
             st.write("**Cons:**")
             st.write("✗ Cardinality selection ($K$) is a hyperparameter\n✗ May under-diversify if $K$ is too small\n✗ Discrete optimization can be slower\n✗ Sensitive to expected-return estimation")
 
+    with tab7:
+        st.subheader("🟠 Reinforcement Learning (RL)")
+        st.markdown("**Objective:** Learn optimal portfolio policy through agent training on historical returns with reward feedback.")
+        st.markdown("**Developed by:** Modern machine learning; applied to portfolio optimization via policy gradient methods")
+        st.markdown("**Investment philosophy:** Rather than assuming static optimization, allow a learning agent to discover adaptive allocation strategies from data, capturing non-linear relationships and regime changes that traditional models miss.")
+        st.caption("Reference: Charpentier, A., Élie, R., & Remlinger, C. (2021). Reinforcement Learning in Different Phases of the Money Management Process. arXiv:2110.03079.")
 
-# ==================== PORTFOLIO BUILDER PAGE ====================
+        st.markdown("#### Mathematical Formula (Policy Gradient Objective)")
+        st.latex(r"\max_{\theta}\; \mathbb{E}[R_{\text{portfolio}} | a_t \sim \pi_\theta(s_t)]")
+        st.latex(r"\text{subject to: } \mathbf{1}^\top w_t = 1, \quad 0 \le w_i(t) \le w_{\max}, \quad \text{(long-only and fully invested)}")
 
-def page_portfolio_builder():
-    st.title("🛠️ Interactive Portfolio Builder")
+        st.markdown("#### Mathematical Derivation (Full)")
+        st.write("**Step 1** — Define the trading environment as a Markov Decision Process (MDP):")
+        st.latex(r"(S, A, P, R, \gamma) \text{ where:}")
+        st.write(r"- $S$: State space = market covariance matrix + recent returns (lookback window)")
+        st.write(r"- $A$: Action space = portfolio weight vector $w \in \Delta^n$ (simplex)")
+        st.write(r"- $P$: Transition dynamics = next-day returns from $r_t \sim ?$")
+        st.write(r"- $R$: Reward = portfolio return (Sharpe ratio, cumulative, or risk-adjusted)")
+        st.write(r"- $\gamma$: Discount factor = 0.99 (value of future rewards)")
 
-    with st.expander("Add or remove custom tickers", expanded=False):
+        st.write("**Step 2** — Policy parameterization using neural network:")
+        st.latex(r"\pi_\theta(w_t | s_t) = \text{softmax}(\text{NN}_\theta(s_t))")
+        st.write(r"where $\text{NN}_\theta$ is a learnable neural network with weights $\theta$, and softmax ensures $\mathbf{1}^\top w = 1$.")
+
+        st.write("**Step 3** — Define the value function (expected cumulative return from state $s$):")
+        st.latex(r"V^\pi(s) = \mathbb{E}[G_t | S_t = s] = \mathbb{E}\left[\sum_{k=0}^\infty \gamma^k R_{t+k} \mid S_t = s\right]")
+        st.write("The agent learns to maximize this: better states have higher value functions.")
+
+        st.write("**Step 4** — Policy gradient update (REINFORCE or Actor-Critic):")
+        st.latex(r"\theta_{t+1} = \theta_t + \alpha \nabla_\theta \log \pi_\theta(a_t | s_t) \cdot (R_t + \gamma V(s_{t+1}) - V(s_t))")
+        st.write(r"(advantage $A_t = R_t + \gamma V(s_{t+1}) - V(s_t)$), scaled by learning rate $\alpha$.")
+
+        st.write("**Step 5** — Iterative improvement:")
+        st.latex(r"\text{For } \text{episode} = 1, 2, \ldots, N_{\text{epochs}}:")
+        st.latex(r"1. \text{ Reset state } s_0 \text{ (e.g., current market regime)}")
+        st.latex(r"2. \text{ For } t = 1, \ldots, T: \quad a_t = \pi_\theta(s_t), \quad s_{t+1} = \text{next market state}, \quad R_t = \text{return}")
+        st.latex(r"3. \text{ Accumulate } A_t \text{ (advantage)}, \text{ update } \theta \text{ via gradient step}")
+        st.write(r"Repeat until convergence (policy stabilizes across random episodes).")
+
+        st.markdown("#### Pros and Cons")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write("**Pros:**")
+            st.write("✓ Adaptive to market regimes and changing conditions\n✓ Captures non-linear relationships\n✓ Can learn from large historical datasets\n✓ No closed-form solution needed")
+        with c2:
+            st.write("**Cons:**")
+            st.write("✗ Computationally expensive (slow training)\n✗ Requires many training episodes (data hungry)\n✗ Overfitting risk on historical data\n✗ 'Black box' - difficult to interpret decisions\n✗ Unstable in scarce-data regimes (small portfolios)")
+
+    with tab8:
+        st.subheader("🔵 Distributionally Robust Optimization (DRO)")
+        st.markdown("**Objective:** Optimize portfolio under ambiguity, protecting against model misspecification by considering all distributions in an uncertainty set.")
+        st.markdown("**Developed by:** Ben-Tal, Ghaoui, & Nemirovski (2000+)")
+        st.markdown("**Investment philosophy:** Traditional mean-variance assumes we know the true return distribution. DRO relaxes this: optimize for the worst-case return distribution within a **ball** of likely distributions, ensuring robustness.")
+        st.caption("Reference: Ben-Tal, A., Ghaoui, L. E., & Nemirovski, A. (2009). Robust Optimization. Princeton University Press.")
+
+        st.markdown("#### Mathematical Formula (Min-Max Objective)")
+        st.latex(r"\max_w \; \min_{F \in \mathcal{F}_\epsilon} \mathbb{E}_F[r^\top w] - \lambda \cdot \text{Var}_F(r^\top w)")
+        st.latex(r"\text{subject to: } \mathbf{1}^\top w = 1, \quad 0 \le w_i \le w_{\max}")
+
+        st.markdown("#### Mathematical Derivation (Full)")
+        st.write("**Step 1** — Standard mean-variance assumes exact distribution $F^*$ of returns is known:")
+        st.latex(r"\mu = \mathbb{E}_{F^*}[r], \quad \Sigma = \text{Cov}_{F^*}[r]")
+        st.write("But $F^*$ is unknown; we only observe samples. DRO hedges against this uncertainty.")
+
+        st.write("**Step 2** — Define an uncertainty set $\\mathcal{F}_\\epsilon$ around the empirical distribution:")
+        st.latex(r"\mathcal{F}_\epsilon = \{F : d(F, \hat{F}_N) \le \epsilon\}")
+        st.write(r"where $\hat{F}_N$ is the empirical distribution (sample CDF) and $d(\cdot, \cdot)$ is a divergence (Wasserstein, KL, $\chi^2$, etc.).")
+        st.write(r"Common choice: **Wasserstein distance** $W_p(F, \hat{F}) = \inf_{\pi} \left(\int |x-y|^p d\pi(x,y)\right)^{1/p}$")
+
+        st.write("**Step 3** — Min-max reformulation (worst-case optimization):")
+        st.latex(r"\max_w \min_{F \in \mathcal{F}_\epsilon} \left[ \mathbb{E}_F[w^\top r] - \frac{\lambda}{2} (w^\top \text{Cov}_F[r] w) \right]")
+        st.write(r"Intuitively: choose $w$ that performs best even if Nature picks the worst distribution in the uncertainty set.")
+
+        st.write("**Step 4** — Tractable reformulation via Lagrangian duality:")
+        st.write(r"Under Wasserstein ambiguity, the inner min over distributions can be solved explicitly:")
+        st.latex(r"\min_F \mathbb{E}_F[r^\top w] \approx \mu_N^\top w - \epsilon \|w\|_2")
+        st.write(r"where $\mu_N$ is the sample mean and $\|w\|_2$ is the regularization (penalizes extreme allocations).")
+        st.write(r"Similarly for variance, yielding a tractable least-squares problem with $\ell_2$ regularization.")
+
+        st.write("**Step 5** — Final convex optimization:")
+        st.latex(r"\max_w \quad \mu_N^\top w - \epsilon \|w\|_2 - \frac{\lambda}{2} w^\top (\Sigma_N + \epsilon I) w")
+        st.latex(r"\text{subject to: } \mathbf{1}^\top w = 1, \quad 0 \le w_i \le w_{\max}")
+        st.write(r"The $\epsilon I$ term adds regularization, making covariance more stable when $n$ is large and $N$ (samples) is limited.")
+
+        st.markdown("#### Pros and Cons")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write("**Pros:**")
+            st.write("✓ Robust to model misspecification\n✓ Handles small-sample regimes well\n✓ Convex optimization (tractable)\n✓ Theoretically justified (worst-case guarantee)")
+        with c2:
+            st.write("**Cons:**")
+            st.write("✗ Hyperparameter $\\epsilon$ (uncertainty radius) must be chosen\n✗ Conservative: may under-allocate to risky assets\n✗ Computationally heavier than GMV\n✗ Sensitive to choice of divergence metric ($W_p$, KL, etc.)")
+
+
+# ==================== HOLDINGS PAGE (merged: Builder + Factor Analysis) ====================
+
+def page_holdings():
+    st.title("📈 Portfolio Builder & Factor Analysis")
+    st.markdown("""
+    Build your custom portfolio and analyze factor exposures:
+    - **Section 1**: Add/remove stocks and set portfolio constraints
+    - **Section 2**: Analyze factor exposure of your holdings
+    """)
+    
+    st.divider()
+    
+    # ===== SECTION 1: PORTFOLIO CONSTRUCTION =====
+    st.subheader("🎯 SECTION 1: Portfolio Construction & Configuration")
+    
+    with st.expander("📝 Stock Selection & Customization", expanded=True):
         add_col, rem_col = st.columns(2)
         with add_col:
             new_ticker = st.text_input("Add ticker", placeholder="e.g., AAPL").upper().strip()
@@ -1103,6 +1234,9 @@ def page_portfolio_builder():
                     st.rerun()
 
     st.write(f"**Current universe:** {len(st.session_state.selected_stocks)} tickers")
+    
+    # Divider before configuration
+    st.divider()
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -1153,97 +1287,236 @@ def page_portfolio_builder():
         )
         st.caption(f"📊 Portfolio will hold at most {constraints['max_holdings']} assets")
 
-    if st.button("🚀 Run Optimization", use_container_width=True):
-        try:
-            prices, returns = load_portfolio_data(st.session_state.selected_stocks, start_date, end_date)
-            results, cov = run_portfolio_optimization(returns, max_weight, constraints=constraints)
-            
-            # Display constraint validation
-            if constraints:
-                st.markdown("---")
-                st.subheader("✓ Constraints Applied")
-                constraint_text = []
-                if 'sector_caps' in constraints:
-                    constraint_text.append(f"**Sector caps:** {', '.join([f'{s}: {v*100:.0f}%' for s, v in constraints['sector_caps'].items()])}")
-                if 'min_weight' in constraints:
-                    constraint_text.append(f"**Min weight per holding:** {constraints['min_weight']*100:.1f}%")
-                if 'max_holdings' in constraints:
-                    constraint_text.append(f"**Max holdings:** {constraints['max_holdings']}")
-                for text in constraint_text:
-                    st.write(text)
-            
-            st.session_state.data_loaded = True
-            st.session_state.prices = prices
-            st.session_state.returns = returns
-            st.session_state.results = results
-            st.session_state.cov = cov
-            st.session_state.max_weight = max_weight
-            st.session_state.constraints = constraints
-            st.success("✅ Optimization complete!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"❌ Error: {e}")
-
-    if st.session_state.data_loaded and "results" in st.session_state:
+    st.divider()
+    
+    # Display constraint validation
+    if constraints:
         st.markdown("---")
-        st.subheader("📈 Optimized Allocations")
-        returns = st.session_state.returns
-        results = st.session_state.results
-
-        tabs = st.tabs(list(results.keys()))
-        for tab, (model_name, data) in zip(tabs, results.items()):
-            with tab:
-                weights = data["weights"].sort_values(ascending=False)
-                vol = data["volatility"]
-
-                portfolio_returns = (returns * weights).sum(axis=1)
-                annual_return = (1 + portfolio_returns).prod() ** (252 / max(len(portfolio_returns), 1)) - 1
-                sharpe = (annual_return - RISK_FREE_RATE) / (vol + 1e-10)
-
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Annual Return", f"{annual_return*100:.2f}%")
-                c2.metric("Volatility", f"{vol*100:.2f}%")
-                c3.metric("Sharpe", f"{sharpe:.3f}")
-                c4.metric("Holdings", int((weights > 1e-4).sum()))
-
-                # Display sector allocation if constraints applied
-                if "constraints" in st.session_state and st.session_state.constraints:
-                    st.markdown("**Sector Allocation:**")
-                    sector_alloc = get_sector_allocation(weights)
+        st.subheader("✓ Constraints Applied")
+        constraint_text = []
+        if 'sector_caps' in constraints:
+            constraint_text.append(f"**Sector caps:** {', '.join([f'{s}: {v*100:.0f}%' for s, v in constraints['sector_caps'].items()])}")
+        if 'min_weight' in constraints:
+            constraint_text.append(f"**Min weight per holding:** {constraints['min_weight']*100:.1f}%")
+        if 'max_holdings' in constraints:
+            constraint_text.append(f"**Max holdings:** {constraints['max_holdings']}")
+        for text in constraint_text:
+            st.write(text)
+    
+    # ===== SECTION 2: FACTOR EXPOSURE ANALYSIS =====
+    st.markdown("---")
+    st.divider()
+    st.subheader("🔍 SECTION 2: Factor Exposure Analysis")
+    st.markdown("""
+    Understand what risk factors your portfolio is exposed to:
+    - **Market (Beta)**: Systematic risk relative to S&P 500
+    - **Size**: Large-cap vs Small-cap bias
+    - **Value**: Value stocks vs Growth stocks (P/B ratio)
+    - **Momentum**: Trending vs Mean-reverting exposure
+    - **Quality**: High-quality vs Low-quality companies (ROE, profitability)
+    """)
+    
+    # Date range for factor exposure analysis
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date_factor = st.date_input("Start date", value=datetime.now() - timedelta(days=365), max_value=datetime.now(), key="holdings_start")
+    with col2:
+        end_date_factor = st.date_input("End date", value=datetime.now(), max_value=datetime.now(), key="holdings_end")
+    
+    st.markdown("### 📊 Enter Custom Portfolio Weights")
+    st.caption("Build your custom portfolio and analyze its factor exposures. Total weights should sum to 100%")
+    
+    portfolio_tickers = []
+    portfolio_weights = []
+    
+    # Input table for custom weights
+    num_rows = 5
+    cols = st.columns(3)
+    with cols[0]:
+        st.write("**Stock**")
+    with cols[1]:
+        st.write("**Weight (%)**")
+    with cols[2]:
+        st.write("")
+    
+    for i in range(num_rows):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            ticker = st.text_input(f"Ticker {i+1}", placeholder="MSFT", key=f"holdings_ticker_{i}")
+        with c2:
+            weight = st.number_input(f"Weight {i+1}", 0.0, 100.0, 0.0, key=f"holdings_weight_{i}")
+        
+        if ticker and weight > 0:
+            portfolio_tickers.append(ticker.upper())
+            portfolio_weights.append(weight / 100)
+    
+    if not portfolio_tickers:
+        st.warning("Please enter at least one ticker and weight")
+        weights_factor = None
+    else:
+        # Normalize weights
+        total_weight = sum(portfolio_weights)
+        if total_weight <= 0:
+            st.error("Total weight must be > 0")
+            weights_factor = None
+        else:
+            portfolio_weights = [w / total_weight for w in portfolio_weights]
+            weights_factor = pd.Series(dict(zip(portfolio_tickers, portfolio_weights)))
+    
+    if weights_factor is not None:
+        if st.button("🚀 Analyze Factor Exposure", use_container_width=True):
+            try:
+                with st.spinner("Loading data and calculating exposures..."):
+                    # Load data
+                    prices, returns = load_portfolio_data(list(weights_factor.index), start_date_factor, end_date_factor)
                     
-                    # Create sector allocation chart
-                    sector_df = pd.DataFrame({
-                        "Sector": list(sector_alloc.keys()),
-                        "Weight (%)": [v*100 for v in sector_alloc.values()]
-                    })
-                    fig_sector = px.bar(
-                        sector_df,
-                        x="Sector",
-                        y="Weight (%)",
-                        title="Sector Allocation",
-                        text=[f"{v:.1f}%" for v in sector_df["Weight (%)"]]
-                    )
-                    fig_sector.update_traces(textposition='outside')
-                    st.plotly_chart(fig_sector, use_container_width=True)
+                    # Calculate portfolio exposures
+                    portfolio_exp = portfolio_factor_exposure(weights_factor, returns)
                     
-                    # Sector caps validation
-                    if 'sector_caps' in st.session_state.constraints:
-                        caps = st.session_state.constraints['sector_caps']
-                        cap_text = []
-                        for sector, alloc in sector_alloc.items():
-                            cap = caps.get(sector, 1.0)
-                            status = "✓" if alloc <= cap else "✗"
-                            cap_text.append(f"{status} {sector}: {alloc*100:.1f}% (cap: {cap*100:.0f}%)")
-                        st.write(" | ".join(cap_text))
-
-                fig_pie = px.pie(values=weights[weights > 1e-3], names=weights[weights > 1e-3].index, title=f"{model_name} Allocation")
-                st.plotly_chart(fig_pie, use_container_width=True)
-
-                weights_table = pd.DataFrame({
-                    "Stock": weights.head(15).index,
-                    "Weight": [f"{w*100:.2f}%" for w in weights.head(15).values],
-                })
-                st.dataframe(weights_table, use_container_width=True, hide_index=True)
+                    # Calculate benchmark exposures
+                    benchmarks = get_benchmark_exposures(['SPY', 'QQQ'], returns)
+                
+                # Display results
+                st.markdown("---")
+                st.subheader("✓ Factor Exposure Summary")
+                
+                col1, col2, col3, col4, col5 = st.columns(5)
+                with col1:
+                    beta = portfolio_exp['beta_portfolio']
+                    beta_text = f"{beta:.2f}" if not pd.isna(beta) else "N/A"
+                    st.metric("Market (Beta)", beta_text, help="Sensitivity to S&P 500")
+                
+                with col2:
+                    size = portfolio_exp['size_portfolio']
+                    size_text = f"{size:.2f}" if not pd.isna(size) else "N/A"
+                    st.metric("Size", size_text, help="Log market cap exposure")
+                
+                with col3:
+                    value = portfolio_exp['value_portfolio']
+                    value_text = f"{value:.2f}" if not pd.isna(value) else "N/A"
+                    st.metric("Value", value_text, help="Lower P/B = value, Higher P/B = growth")
+                
+                with col4:
+                    momentum = portfolio_exp['momentum_portfolio']
+                    momentum_text = f"{momentum*100:.1f}%" if not pd.isna(momentum) else "N/A"
+                    st.metric("Momentum (6M)", momentum_text, help="Positive = uptrend")
+                
+                with col5:
+                    quality = portfolio_exp['quality_portfolio']
+                    quality_text = f"{quality:.2f}" if not pd.isna(quality) else "N/A"
+                    st.metric("Quality", quality_text, help="Higher ROE & Lower P/B = quality")
+                
+                # Factor comparison chart
+                st.markdown("### Factor Comparison vs Benchmarks")
+                
+                factor_comparison = {
+                    'Portfolio': {
+                        'Beta': portfolio_exp.get('beta_portfolio', 0),
+                        'Size': portfolio_exp.get('size_portfolio', 0),
+                        'Value': portfolio_exp.get('value_portfolio', 0),
+                        'Momentum': portfolio_exp.get('momentum_portfolio', 0),
+                        'Quality': portfolio_exp.get('quality_portfolio', 0)
+                    }
+                }
+                
+                for bench_ticker, bench_exp in benchmarks.items():
+                    factor_comparison[bench_ticker] = {
+                        'Beta': bench_exp.get('beta', 0),
+                        'Size': bench_exp.get('size', 0),
+                        'Value': bench_exp.get('value', 0),
+                        'Momentum': bench_exp.get('momentum', 0),
+                        'Quality': bench_exp.get('quality', 0)
+                    }
+                
+                comparison_df = pd.DataFrame(factor_comparison).T.fillna(0)
+                
+                fig_factors = go.Figure()
+                for factor in comparison_df.columns:
+                    fig_factors.add_trace(go.Bar(
+                        name=factor,
+                        x=comparison_df.index,
+                        y=comparison_df[factor]
+                    ))
+                
+                fig_factors.update_layout(
+                    title="Factor Exposure Comparison",
+                    barmode='group',
+                    xaxis_title="Portfolio",
+                    yaxis_title="Exposure",
+                    hovermode='x unified'
+                )
+                st.plotly_chart(fig_factors, use_container_width=True)
+                
+                # Individual stock breakdown
+                st.markdown("### Individual Stock Factor Breakdown")
+                
+                df_breakdown = portfolio_exp['factor_breakdown']
+                
+                if not df_breakdown.empty:
+                    # Display table
+                    display_cols = ['Ticker', 'Weight', 'Beta', 'Size', 'Value', 'Momentum', 'Quality']
+                    display_df = df_breakdown[display_cols].copy()
+                    
+                    # Format columns
+                    display_df['Weight'] = display_df['Weight'].apply(lambda x: f"{x*100:.1f}%")
+                    for col in ['Beta', 'Size', 'Value', 'Quality']:
+                        display_df[col] = display_df[col].apply(lambda x: f"{x:.2f}" if not pd.isna(x) else "N/A")
+                    display_df['Momentum'] = display_df['Momentum'].apply(lambda x: f"{x*100:.1f}%" if not pd.isna(x) else "N/A")
+                    
+                    st.dataframe(display_df, use_container_width=True, hide_index=True)
+                    
+                    # Size scatter (Market Cap vs Weight)
+                    st.markdown("### Size Distribution")
+                    scatter_df = df_breakdown[['Ticker', 'Weight', 'Market Cap']].copy()
+                    scatter_df = scatter_df[scatter_df['Market Cap'].notna()]
+                    
+                    if not scatter_df.empty:
+                        fig_scatter = px.scatter(
+                            scatter_df,
+                            x='Market Cap',
+                            y='Weight',
+                            size='Weight',
+                            hover_name='Ticker',
+                            log_x=True,
+                            title="Market Cap vs Portfolio Weight",
+                            labels={'Market Cap': 'Market Cap (log scale)', 'Weight': 'Weight in Portfolio'}
+                        )
+                        st.plotly_chart(fig_scatter, use_container_width=True)
+                
+                # Interpretation guide
+                st.markdown("---")
+                st.markdown("### 📖 Factor Interpretation Guide")
+                
+                with st.expander("What do these factors mean?"):
+                    st.markdown("""
+                    **Beta (Market Risk)**
+                    - Beta > 1: Portfolio is more volatile than S&P 500 (higher systematic risk)
+                    - Beta = 1: Moves in line with S&P 500
+                    - Beta < 1: Portfolio is less volatile than S&P 500 (lower systematic risk)
+                    
+                    **Size**
+                    - Higher values: Biased toward large-cap stocks
+                    - Lower values: Biased toward small-cap stocks
+                    
+                    **Value**
+                    - Positive: Value stock bias (lower P/B ratios)
+                    - Negative: Growth stock bias (higher P/B ratios)
+                    
+                    **Momentum**
+                    - Positive %: Stocks trending up (bullish exposure)
+                    - Negative %: Stocks trending down (bearish exposure)
+                    - Near 0%: Neutral momentum
+                    
+                    **Quality**
+                    - Positive: High-quality companies (high ROE, low P/B, profitable)
+                    - Negative: Lower-quality companies (low ROE, high P/B)
+                    - Range typically: -1 to +1
+                    """)
+            
+            except Exception as e:
+                st.error(f"Error during analysis: {e}")
+                import traceback
+                st.write(traceback.format_exc())
 
 
 def page_backtest():
@@ -1258,6 +1531,15 @@ def page_backtest():
     - **Turnover Cost Formula:** $\\text{Cost} = 0.1\\% \\times \\sum_i |w_i^{\\text{new}} - w_i^{\\text{old}}|$ (one-way)
     
     This ensures realistic comparison across models, since sparse portfolios (ex: LASSO) typically have lower turnover.
+    """)
+    
+    st.success("""
+    **🔄 Backtest vs Home Page:**
+    - **Backtest:** Rolling historical simulation showing how strategies would have performed since 2020 with monthly rebalancing
+    - **Home Page:** One-time portfolio construction showing realistic performance on hold-to-test period
+    
+    Both use **out-of-sample evaluation** (honest assessment), but Backtest shows rolling returns over 6+ years while 
+    Home Page shows point-in-time performance. Results should be in similar range (~15-25% annual return).
     """)
 
     tickers = st.session_state.selected_stocks if st.session_state.selected_stocks else ALL_STOCKS
@@ -1276,7 +1558,7 @@ def page_backtest():
     with col3:
         use_param_tuning = st.checkbox(
             "Enable walk-forward parameter tuning",
-            value=False,
+            value=True,
             help="Auto-tune model hyperparameters (e.g., LASSO K, CVaR alpha, BL tau) using train/validation splits. More realistic but slower."
         )
     with col4:
@@ -1314,7 +1596,23 @@ def page_backtest():
         benchmarks = results.get('benchmarks', {})
         model_results = {k: v for k, v in results.items() if k != 'benchmarks'}
 
-        st.subheader("📊 Performance Metrics")
+        st.markdown("---")
+        
+        # Show evaluation methodology info
+        if use_param_tuning:
+            st.info(
+                "📊 **Evaluation Methodology**: Walk-forward out-of-sample analysis with "
+                f"{int(train_val_ratio*100)}/{int((1-train_val_ratio)*100)} train/validation split. "
+                "Each portfolio is optimized only on training data, then evaluated on unseen validation data. "
+                "Portfolio weights are rebalanced at each period. Results are honest, out-of-sample performance."
+            )
+        else:
+            st.warning(
+                "⚠️ **Note**: Using default parameters (walk-forward tuning disabled). "
+                "Enable 'walk-forward parameter tuning' for more realistic out-of-sample results."
+            )
+
+        st.subheader("📊 Performance Metrics (Out-of-Sample)")
         
         # Model performance table
         st.markdown("### Models")
@@ -1416,1052 +1714,6 @@ def page_backtest():
     else:
         st.info("Configure parameters and run backtest to view out-of-sample performance.")
 
-# ==================== HOLDINGS ANALYSIS PAGE ====================
-
-def page_holdings_analysis():
-    st.title("📈 Risk Factor Exposure Analysis")
-    
-    st.markdown("""
-    Understand what risk factors your portfolio is exposed to:
-    - **Market (Beta)**: Systematic risk relative to S&P 500
-    - **Size**: Large-cap vs Small-cap bias
-    - **Value**: Value stocks vs Growth stocks (P/B ratio)
-    - **Momentum**: Trending vs Mean-reverting exposure
-    - **Quality**: High-quality vs Low-quality companies (ROE, profitability)
-    """)
-    
-    # Portfolio selection mode
-    col1, col2 = st.columns(2)
-    with col1:
-        analysis_mode = st.radio("Analysis Mode", ["Pre-built Portfolio", "Custom Weights"], key="holdings_mode")
-    
-    with col2:
-        start_date = st.date_input("Start date", value=datetime.now() - timedelta(days=365), max_value=datetime.now(), key="holdings_start")
-    
-    if analysis_mode == "Custom Weights":
-        end_date = st.date_input("End date", value=datetime.now(), max_value=datetime.now(), key="holdings_end")
-        
-        st.markdown("### 📊 Enter Custom Portfolio Weights")
-        st.caption("Total weights should sum to 100%")
-        
-        portfolio_tickers = []
-        portfolio_weights = []
-        
-        # Input table for custom weights
-        num_rows = 5
-        cols = st.columns(3)
-        with cols[0]:
-            st.write("**Stock**")
-        with cols[1]:
-            st.write("**Weight (%)**")
-        with cols[2]:
-            st.write("")
-        
-        for i in range(num_rows):
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                ticker = st.text_input(f"Ticker {i+1}", placeholder="MSFT", key=f"holdings_ticker_{i}")
-            with c2:
-                weight = st.number_input(f"Weight {i+1}", 0.0, 100.0, 0.0, key=f"holdings_weight_{i}")
-            
-            if ticker and weight > 0:
-                portfolio_tickers.append(ticker.upper())
-                portfolio_weights.append(weight / 100)
-        
-        if not portfolio_tickers:
-            st.warning("Please enter at least one ticker and weight")
-            return
-        
-        # Normalize weights
-        total_weight = sum(portfolio_weights)
-        if total_weight <= 0:
-            st.error("Total weight must be > 0")
-            return
-        
-        portfolio_weights = [w / total_weight for w in portfolio_weights]
-        weights = pd.Series(dict(zip(portfolio_tickers, portfolio_weights)))
-        
-    else:  # Pre-built portfolio mode
-        end_date = datetime.now()
-        
-        portfolio_options = {
-            "All Stocks (Equally Weighted)": {ticker: 1/len(ALL_STOCKS) for ticker in ALL_STOCKS},
-            "Top 10 by Market Cap": None,  # Will use custom entry
-            "Sector Diversified": None,    # Will use custom entry
-        }
-        
-        selected_preset = st.selectbox("Select preset portfolio", 
-                                      ["All Stocks (Equally Weighted)", "Custom Portfolio"])
-        
-        if selected_preset == "All Stocks (Equally Weighted)":
-            weights = pd.Series(dict(zip(ALL_STOCKS, [1/len(ALL_STOCKS)]*len(ALL_STOCKS))))
-        else:
-            st.info("Use Custom Weights mode above or select from available backtested portfolios")
-            return
-    
-    # Run analysis
-    if st.button("🚀 Analyze Factor Exposure", use_container_width=True):
-        try:
-            with st.spinner("Loading data and calculating exposures..."):
-                # Load data
-                prices, returns = load_portfolio_data(list(weights.index), start_date, end_date)
-                
-                # Calculate portfolio exposures
-                portfolio_exp = portfolio_factor_exposure(weights, returns)
-                
-                # Calculate benchmark exposures
-                benchmarks = get_benchmark_exposures(['SPY', 'QQQ'], returns)
-            
-            # Display results
-            st.markdown("---")
-            st.subheader("✓ Factor Exposure Summary")
-            
-            col1, col2, col3, col4, col5 = st.columns(5)
-            with col1:
-                beta = portfolio_exp['beta_portfolio']
-                beta_text = f"{beta:.2f}" if not pd.isna(beta) else "N/A"
-                st.metric("Market (Beta)", beta_text, help="Sensitivity to S&P 500")
-            
-            with col2:
-                size = portfolio_exp['size_portfolio']
-                size_text = f"{size:.2f}" if not pd.isna(size) else "N/A"
-                st.metric("Size", size_text, help="Log market cap exposure")
-            
-            with col3:
-                value = portfolio_exp['value_portfolio']
-                value_text = f"{value:.2f}" if not pd.isna(value) else "N/A"
-                st.metric("Value", value_text, help="Lower P/B = value, Higher P/B = growth")
-            
-            with col4:
-                momentum = portfolio_exp['momentum_portfolio']
-                momentum_text = f"{momentum*100:.1f}%" if not pd.isna(momentum) else "N/A"
-                st.metric("Momentum (6M)", momentum_text, help="Positive = uptrend")
-            
-            with col5:
-                quality = portfolio_exp['quality_portfolio']
-                quality_text = f"{quality:.2f}" if not pd.isna(quality) else "N/A"
-                st.metric("Quality", quality_text, help="Higher ROE & Lower P/B = quality")
-            
-            # Factor comparison chart
-            st.markdown("### Factor Comparison vs Benchmarks")
-            
-            factor_comparison = {
-                'Portfolio': {
-                    'Beta': portfolio_exp.get('beta_portfolio', 0),
-                    'Size': portfolio_exp.get('size_portfolio', 0),
-                    'Value': portfolio_exp.get('value_portfolio', 0),
-                    'Momentum': portfolio_exp.get('momentum_portfolio', 0),
-                    'Quality': portfolio_exp.get('quality_portfolio', 0)
-                }
-            }
-            
-            for bench_ticker, bench_exp in benchmarks.items():
-                factor_comparison[bench_ticker] = {
-                    'Beta': bench_exp.get('beta', 0),
-                    'Size': bench_exp.get('size', 0),
-                    'Value': bench_exp.get('value', 0),
-                    'Momentum': bench_exp.get('momentum', 0),
-                    'Quality': bench_exp.get('quality', 0)
-                }
-            
-            comparison_df = pd.DataFrame(factor_comparison).T.fillna(0)
-            
-            fig_factors = go.Figure()
-            for factor in comparison_df.columns:
-                fig_factors.add_trace(go.Bar(
-                    name=factor,
-                    x=comparison_df.index,
-                    y=comparison_df[factor]
-                ))
-            
-            fig_factors.update_layout(
-                title="Factor Exposure Comparison",
-                barmode='group',
-                xaxis_title="Portfolio",
-                yaxis_title="Exposure",
-                hovermode='x unified'
-            )
-            st.plotly_chart(fig_factors, use_container_width=True)
-            
-            # Individual stock breakdown
-            st.markdown("### Individual Stock Factor Breakdown")
-            
-            df_breakdown = portfolio_exp['factor_breakdown']
-            
-            if not df_breakdown.empty:
-                # Display table
-                display_cols = ['Ticker', 'Weight', 'Beta', 'Size', 'Value', 'Momentum', 'Quality']
-                display_df = df_breakdown[display_cols].copy()
-                
-                # Format columns
-                display_df['Weight'] = display_df['Weight'].apply(lambda x: f"{x*100:.1f}%")
-                for col in ['Beta', 'Size', 'Value', 'Quality']:
-                    display_df[col] = display_df[col].apply(lambda x: f"{x:.2f}" if not pd.isna(x) else "N/A")
-                display_df['Momentum'] = display_df['Momentum'].apply(lambda x: f"{x*100:.1f}%" if not pd.isna(x) else "N/A")
-                
-                st.dataframe(display_df, use_container_width=True, hide_index=True)
-                
-                # Size scatter (Market Cap vs Weight)
-                st.markdown("### Size Distribution")
-                scatter_df = df_breakdown[['Ticker', 'Weight', 'Market Cap']].copy()
-                scatter_df = scatter_df[scatter_df['Market Cap'].notna()]
-                
-                if not scatter_df.empty:
-                    fig_scatter = px.scatter(
-                        scatter_df,
-                        x='Market Cap',
-                        y='Weight',
-                        size='Weight',
-                        hover_name='Ticker',
-                        log_x=True,
-                        title="Market Cap vs Portfolio Weight",
-                        labels={'Market Cap': 'Market Cap (log scale)', 'Weight': 'Weight in Portfolio'}
-                    )
-                    st.plotly_chart(fig_scatter, use_container_width=True)
-            
-            # Interpretation guide
-            st.markdown("---")
-            st.markdown("### 📖 Factor Interpretation Guide")
-            
-            with st.expander("What do these factors mean?"):
-                st.markdown("""
-                **Beta (Market Risk)**
-                - Beta > 1: Portfolio is more volatile than S&P 500 (higher systematic risk)
-                - Beta = 1: Moves in line with S&P 500
-                - Beta < 1: Portfolio is less volatile than S&P 500 (lower systematic risk)
-                
-                **Size**
-                - Higher values: Biased toward large-cap stocks
-                - Lower values: Biased toward small-cap stocks
-                
-                **Value**
-                - Positive: Value stock bias (lower P/B ratios)
-                - Negative: Growth stock bias (higher P/B ratios)
-                
-                **Momentum**
-                - Positive %: Stocks trending up (bullish exposure)
-                - Negative %: Stocks trending down (bearish exposure)
-                - Near 0%: Neutral momentum
-                
-                **Quality**
-                - Positive: High-quality companies (high ROE, low P/B, profitable)
-                - Negative: Lower-quality companies (low ROE, high P/B)
-                - Range typically: -1 to +1
-                """)
-            
-            # ========== FAMA-FRENCH FACTOR ATTRIBUTION ==========
-            st.markdown("---")
-            st.subheader("📊 Fama-French Factor Attribution")
-            st.caption("Understand your portfolio returns through institutional factor analysis")
-            
-            try:
-                # Import FF module
-                from model.ff import FamaFrench
-                
-                # Calculate portfolio returns from the loaded returns data
-                portfolio_returns = (returns * weights).sum(axis=1)
-                portfolio_returns_df = pd.DataFrame(portfolio_returns, columns=['Returns'])
-                
-                # Run Fama-French analysis
-                ff = FamaFrench(returns, weights, lookback_days=len(returns))
-                attr_3f = ff.factor_attribution_3f()
-                attr_5f = ff.factor_attribution_5f()
-                
-                # Create tabs for 3F vs 5F comparison
-                ff_tab1, ff_tab2, ff_tab3 = st.tabs(["3-Factor Model", "5-Factor Model", "Attribution Details"])
-                
-                with ff_tab1:
-                    st.markdown("#### 3-Factor Model (Fama-French 1993)")
-                    st.markdown("""
-                    **Market + Size + Value Factors**
-                    - **Mkt-RF**: Market risk premium (market sensitivity)
-                    - **SMB**: Size factor (small-cap minus big-cap)
-                    - **HML**: Value factor (high book-to-market minus low)
-                    """)
-                    
-                    col1, col2, col3, col4, col5 = st.columns(5)
-                    with col1:
-                        st.metric("Alpha (%)", f"{attr_3f.get('alpha', 0):.2f}", help="Risk-adjusted excess return")
-                    with col2:
-                        market_beta = attr_3f.get('betas', {}).get('market', 0)
-                        st.metric("Market β", f"{market_beta:.3f}", help="Market sensitivity (1.0 = neutral)")
-                    with col3:
-                        smb_beta = attr_3f.get('betas', {}).get('size_smb', 0)
-                        st.metric("Size β", f"{smb_beta:.3f}", help="Small-cap exposure")
-                    with col4:
-                        hml_beta = attr_3f.get('betas', {}).get('value_hml', 0)
-                        st.metric("Value β", f"{hml_beta:.3f}", help="Value stock exposure")
-                    with col5:
-                        st.metric("R² (%)", f"{attr_3f.get('r_squared', 0)*100:.1f}", help="Variance explained")
-                    
-                    # Factor performance table
-                    st.write("**Factor Performance**")
-                    ff_3f_perf = pd.DataFrame({
-                        'Factor': ['Market (Mkt-RF)', 'Size (SMB)', 'Value (HML)'],
-                        'Annual Return (%)': [
-                            attr_3f.get('factor_returns', {}).get('mkt_rf', 0),
-                            attr_3f.get('factor_returns', {}).get('smb', 0),
-                            attr_3f.get('factor_returns', {}).get('hml', 0)
-                        ],
-                        'Annual Volatility (%)': [
-                            attr_3f.get('factor_volatility', {}).get('mkt_rf', 0),
-                            attr_3f.get('factor_volatility', {}).get('smb', 0),
-                            attr_3f.get('factor_volatility', {}).get('hml', 0)
-                        ],
-                        'Sharpe Ratio': [
-                            attr_3f.get('factor_sharpe', {}).get('mkt_rf', 0),
-                            attr_3f.get('factor_sharpe', {}).get('smb', 0),
-                            attr_3f.get('factor_sharpe', {}).get('hml', 0)
-                        ]
-                    })
-                    st.dataframe(ff_3f_perf, use_container_width=True, hide_index=True)
-                    
-                    st.write(f"**Portfolio Performance**")
-                    st.write(f"- Annual Return: {attr_3f.get('portfolio_annual_return', 0):.2f}%")
-                    st.write(f"- Annual Volatility: {attr_3f.get('portfolio_annual_vol', 0):.2f}%")
-                    st.write(f"- Observations: {attr_3f.get('n_observations', 0)} days")
-                
-                with ff_tab2:
-                    st.markdown("#### 5-Factor Model (Fama-French 2015)")
-                    st.markdown("""
-                    **Market + Size + Value + Profitability + Investment Factors**
-                    - **Mkt-RF**: Market risk premium
-                    - **SMB**: Size factor
-                    - **HML**: Value factor
-                    - **RMW**: Profitability factor (robust minus weak)
-                    - **CMA**: Investment factor (conservative minus aggressive)
-                    """)
-                    
-                    col1, col2, col3, col4, col5 = st.columns(5)
-                    with col1:
-                        st.metric("Alpha (%)", f"{attr_5f.get('alpha', 0):.2f}", help="Risk-adjusted excess return")
-                    with col2:
-                        market_beta = attr_5f.get('betas', {}).get('market', 0)
-                        st.metric("Market β", f"{market_beta:.3f}", help="Market sensitivity")
-                    with col3:
-                        rmw_beta = attr_5f.get('betas', {}).get('profitability_rmw', 0)
-                        st.metric("Profit. β", f"{rmw_beta:.3f}", help="Profitability exposure")
-                    with col4:
-                        cma_beta = attr_5f.get('betas', {}).get('investment_cma', 0)
-                        st.metric("Invest. β", f"{cma_beta:.3f}", help="Investment exposure")
-                    with col5:
-                        st.metric("R² (%)", f"{attr_5f.get('r_squared', 0)*100:.1f}", help="Variance explained")
-                    
-                    # All 5 factors table
-                    st.write("**All Factor Exposures (5F Model)**")
-                    ff_5f_factors = pd.DataFrame({
-                        'Factor': ['Market (Mkt-RF)', 'Size (SMB)', 'Value (HML)', 'Profitability (RMW)', 'Investment (CMA)'],
-                        'Beta': [
-                            attr_5f.get('betas', {}).get('market', 0),
-                            attr_5f.get('betas', {}).get('size_smb', 0),
-                            attr_5f.get('betas', {}).get('value_hml', 0),
-                            attr_5f.get('betas', {}).get('profitability_rmw', 0),
-                            attr_5f.get('betas', {}).get('investment_cma', 0)
-                        ]
-                    })
-                    st.dataframe(ff_5f_factors, use_container_width=True, hide_index=True)
-                    
-                    st.write(f"**Portfolio Performance**")
-                    st.write(f"- Annual Return: {attr_5f.get('portfolio_annual_return', 0):.2f}%")
-                    st.write(f"- Annual Volatility: {attr_5f.get('portfolio_annual_vol', 0):.2f}%")
-                
-                with ff_tab3:
-                    st.markdown("#### Factor Attribution Analysis")
-                    
-                    # Performance attribution
-                    perf_attr = ff.performance_attribution()
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Portfolio Return", f"{perf_attr.get('portfolio_return', 0):.2f}%")
-                    with col2:
-                        st.metric("Benchmark Return", f"{perf_attr.get('benchmark_return', 0):.2f}%")
-                    with col3:
-                        st.metric("Excess Return", f"{perf_attr.get('excess_return', 0):.2f}%")
-                    
-                    # Interpretation
-                    st.markdown("##### How to Interpret Factor Betas")
-                    with st.expander("Beta Interpretation Guide"):
-                        st.markdown("""
-                        **Beta > 1.0:** Overweight/amplified exposure to that factor
-                        - **Market β > 1:** Portfolio is more aggressive than market (higher ups/downs)
-                        - **Size β > 1:** Small-cap bias (smaller companies in portfolio)
-                        - **Value β > 1:** Value stock bias (cheaper/distressed companies)
-                        - **Profit β > 1:** Profitability bias (profitable companies)
-                        - **Invest β > 1:** Aggressive investment (growth-focused)
-                        
-                        **Beta = 1.0:** Neutral exposure to that factor
-                        
-                        **Beta < 1.0:** Underweight/dampened exposure to that factor
-                        - **Market β < 1:** Portfolio is more defensive than market
-                        - **Size β < 1:** Large-cap bias (bigger companies)
-                        - **Value β < 1:** Growth stock bias (expensive/trending)
-                        - **Profit β < 1:** Quality/profitability drag
-                        - **Invest β < 1:** Conservative investment (lower growth)
-                        
-                        **Alpha:** Risk-adjusted excess return after accounting for all factors
-                        - **α > 0%:** Outperforming expected return (positive stock picking/timing)
-                        - **α = 0%:** In line with factor expectations
-                        - **α < 0%:** Underperforming expected return
-                        
-                        **R² (Coefficient of Determination):**
-                        - **R² > 0.90:** Factors explain most returns (well-tested model)
-                        - **R² = 0.70:** Factors explain 70% of returns
-                        - **R² < 0.50:** Factors explain less than half of returns (other factors at play)
-                        """)
-            
-            except ImportError:
-                st.warning("Fama-French module not found. Please ensure model/ff.py is configured correctly.")
-            except Exception as ff_error:
-                st.warning(f"Could not compute Fama-French analysis: {str(ff_error)}")
-        
-        except Exception as e:
-            st.error(f"Error during analysis: {e}")
-            import traceback
-            st.write(traceback.format_exc())
-
-# ==================== AI ANALYSIS PAGE ====================
-
-def page_llm_analysis():
-    st.title("🤖 AI Portfolio Analysis & Investment Synthesis")
-    
-    # Important disclaimer
-    st.warning("""
-    ⚠️ **Important Disclaimer**: This AI analysis tool (including FinBERT sentiment analysis) is provided for **informational and educational purposes**. 
-    
-    - **Not Financial Advice**: The analysis, recommendations, and insights generated should NOT be construed as investment advice or credible inference for making investment decisions.
-    - **No Predictive Guarantee**: Past sentiment patterns and model outputs do not guarantee future performance.
-    - **Due Diligence Required**: Always conduct your own research, consult with qualified financial advisors, and consider your risk tolerance before making investment decisions.
-    - **Model Limitations**: AI models may reflect biases, outdated information, or fail to capture market complexities.
-    
-    Use this tool as one of many inputs in your investment research process, not as a sole decision-making authority.
-    """)
-    
-    st.markdown("""
-    AI-driven portfolio insights combining:
-    - **Portfolio Composition Analysis**: Understand your holdings and concentration risk
-    - **Market Context**: Current market environment and opportunities
-    - **Investment Recommendations**: Actionable next steps based on model consensus
-    - **Complementary Stock Suggestions**: Find assets that enhance your portfolio
-    - **Valuation Analysis (DCF & Comps)**: Professional-grade intrinsic value calculation
-    """)
-    
-    # Analysis mode selection
-    col1, col2 = st.columns(2)
-    with col1:
-        analysis_type = st.radio("Analysis Type", 
-                                ["Portfolio Analysis", "Investment Recommendations", "Complementary Stocks", "Valuation Analysis (DCF & Comps)"],
-                                key="ai_analysis_type")
-    with col2:
-        if analysis_type != "Valuation Analysis (DCF & Comps)":
-            start_date = st.date_input("Start date", value=datetime.now() - timedelta(days=365*2), max_value=datetime.now(), key="ai_start")
-            end_date = st.date_input("End date", value=datetime.now(), max_value=datetime.now(), key="ai_end")
-    
-    # Valuation Analysis specific UI
-    if analysis_type == "Valuation Analysis (DCF & Comps)":
-        st.markdown("---")
-        st.subheader("⚙️ Configure Valuation Parameters")
-        
-        # Stock selection
-        col1, col2 = st.columns(2)
-        with col1:
-            # Allow selection from portfolio or custom ticker
-            valuation_source = st.radio("Stock Source", ["From Portfolio", "Custom Ticker"])
-            
-            if valuation_source == "From Portfolio":
-                if len(st.session_state.selected_stocks) > 0:
-                    valuation_ticker = st.selectbox("Select Stock", st.session_state.selected_stocks)
-                else:
-                    st.warning("No stocks in portfolio. Please add stocks or use Custom Ticker.")
-                    valuation_ticker = None
-            else:
-                valuation_ticker = st.text_input("Enter Ticker Symbol", value="AAPL").upper()
-        
-        with col2:
-            st.markdown("**Analysis Options**")
-            run_dcf = st.checkbox("Run DCF Analysis", value=True)
-            run_comps = st.checkbox("Run Comparable Companies Analysis", value=True)
-            auto_find_peers = st.checkbox("Auto-find peer companies", value=True, 
-                                         help="Automatically identify comparable companies in same sector")
-        
-        if not auto_find_peers and run_comps:
-            peer_tickers_input = st.text_input("Enter Peer Tickers (comma-separated)", 
-                                              placeholder="e.g., MSFT,GOOGL,META")
-            peer_tickers = [t.strip().upper() for t in peer_tickers_input.split(',') if t.strip()]
-        else:
-            peer_tickers = None
-        
-        # DCF Assumptions
-        st.markdown("### 💼 DCF Model Assumptions")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            wacc_input = st.number_input("WACC (%)", min_value=0.0, max_value=30.0, value=10.0, step=0.5,
-                                        help="Weighted Average Cost of Capital")
-            wacc = wacc_input / 100
-            
-            terminal_growth = st.number_input("Terminal Growth Rate (%)", min_value=0.0, max_value=5.0, 
-                                            value=2.5, step=0.1,
-                                            help="Long-term perpetual growth rate") / 100
-        
-        with col2:
-            revenue_growth = st.number_input("Revenue Growth Rate (%)", min_value=-20.0, max_value=50.0, 
-                                           value=None, step=1.0,
-                                           help="Leave empty to auto-calculate from historical data")
-            if revenue_growth is not None:
-                revenue_growth = revenue_growth / 100
-            
-            forecast_years = st.number_input("Forecast Period (years)", min_value=3, max_value=10, 
-                                           value=5, step=1)
-        
-        with col3:
-            risk_free_rate = st.number_input("Risk-Free Rate (%)", min_value=0.0, max_value=10.0, 
-                                           value=4.0, step=0.1,
-                                           help="US Treasury 10-year yield") / 100
-            
-            market_risk_premium = st.number_input("Market Risk Premium (%)", min_value=0.0, max_value=15.0, 
-                                                 value=7.0, step=0.5,
-                                                 help="Expected market return - risk-free rate") / 100
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            tax_rate = st.number_input("Corporate Tax Rate (%)", min_value=0.0, max_value=50.0, 
-                                      value=21.0, step=1.0) / 100
-        with col2:
-            cost_of_debt = st.number_input("Cost of Debt (%)", min_value=0.0, max_value=20.0, 
-                                          value=5.0, step=0.5) / 100
-        
-        st.markdown("---")
-        
-        if st.button("🔍 Run Valuation Analysis", use_container_width=True):
-            if valuation_ticker:
-                from valuation import dcf_valuation, comparable_companies_analysis, format_valuation_report
-                import time
-                
-                # Create progress tracking
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                status_text.info("⏳ Analyzing valuation... (Using optimized engine with caching)")
-                progress_bar.progress(10)
-                time.sleep(0.2)
-                
-                dcf_result = None
-                comps_result = None
-                
-                # Run DCF
-                if run_dcf:
-                    status_text.info("⚡ DCF Analysis (optimized - <5 seconds)...")
-                    progress_bar.progress(30)
-                    
-                    dcf_result = run_dcf_cached(
-                        ticker=valuation_ticker,
-                        wacc=wacc,
-                        terminal_growth=terminal_growth,
-                        forecast_years=int(forecast_years),
-                        risk_free_rate=risk_free_rate,
-                        market_risk_premium=market_risk_premium,
-                        tax_rate=tax_rate,
-                        cost_of_debt=cost_of_debt,
-                        revenue_growth=revenue_growth
-                    )
-                    progress_bar.progress(60)
-                
-                # Run Comps
-                if run_comps:
-                    status_text.info("⚡ Comps Analysis (parallel peer screening)...")
-                    progress_bar.progress(75)
-                    
-                    comps_result = run_comps_cached(
-                        ticker=valuation_ticker,
-                        peer_tickers=peer_tickers,
-                        auto_find_peers=auto_find_peers
-                    )
-                    progress_bar.progress(90)
-                
-                status_text.success("✅ Analysis complete!")
-                progress_bar.progress(100)
-                time.sleep(0.5)
-                progress_bar.empty()
-                status_text.empty()
-                
-                # Display results
-                st.markdown("---")
-                
-                if dcf_result and dcf_result.get('success'):
-                    # Generate formatted report
-                    report = format_valuation_report(dcf_result, comps_result)
-                    st.markdown(report)
-                    
-                    # Visualizations
-                    st.subheader("📈 Valuation Analysis & Gauge")
-                    
-                    # Create gauge showing valuation status (Underpriced / Fair Value / Overpriced)
-                    col_gauge, col_metrics = st.columns([1.2, 1])
-                    
-                    with col_gauge:
-                        # Calculate upside/downside percentage for gauge
-                        upside_dcf = dcf_result.get('upside_pct', 0)
-                        
-                        # Create gauge visualization
-                        gauge_fig = go.Figure(data=[go.Indicator(
-                            mode="gauge+number+delta",
-                            value=upside_dcf,
-                            title={'text': "Valuation Status"},
-                            delta={'reference': 0, 'suffix': "%", 'prefix': ""},
-                            gauge={
-                                'axis': {'range': [-50, 50]},
-                                'bar': {'color': "darkblue" if upside_dcf > 15 else "orange" if upside_dcf > -15 else "darkred"},
-                                'steps': [
-                                    {'range': [-50, -15], 'color': "#ffcccc"},  # Overpriced (red)
-                                    {'range': [-15, 15], 'color': "#ffffcc"},   # Fair value (yellow)
-                                    {'range': [15, 50], 'color': "#ccffcc"},    # Underpriced (green)
-                                ],
-                                'threshold': {
-                                    'line': {'color': "black", 'width': 2},
-                                    'thickness': 0.75,
-                                    'value': 0
-                                }
-                            },
-                            domain={'x': [0, 1], 'y': [0, 1]}
-                        )])
-                        
-                        gauge_fig.update_layout(
-                            height=400,
-                            margin=dict(l=10, r=10, t=40, b=10),
-                            font={'size': 12}
-                        )
-                        
-                        st.plotly_chart(gauge_fig, use_container_width=True)
-                        
-                        # Valuation status interpretation
-                        if upside_dcf > 15:
-                            st.success("✅ **UNDERPRICED** - Stock trading below intrinsic value. Offering margin of safety.")
-                        elif upside_dcf > -15:
-                            st.info("≈ **FAIRLY VALUED** - Stock near intrinsic value. Consider portfolio fit and risk/reward.")
-                        else:
-                            st.error("⚠️ **OVERPRICED** - Stock trading above intrinsic value. Consider waiting for pullback.")
-                    
-                    with col_metrics:
-                        st.markdown("### Key Metrics")
-                        st.metric("Current Price", 
-                                 f"${dcf_result['current_price']:.2f}",
-                                 delta=None)
-                        st.metric("DCF Intrinsic Value", 
-                                 f"${dcf_result['intrinsic_value']:.2f}",
-                                 delta=f"{upside_dcf:+.1f}%")
-                        if comps_result and comps_result.get('success') and comps_result.get('avg_implied_value'):
-                            upside_comps = comps_result.get('upside_pct', 0)
-                            st.metric("Comps Implied Value", 
-                                     f"${comps_result['avg_implied_value']:.2f}",
-                                     delta=f"{upside_comps:+.1f}%")
-                    
-                    st.markdown("---")
-                    
-                    # Price comparison chart (traditional metrics)
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Current Market Price", 
-                                 f"${dcf_result['current_price']:.2f}",
-                                 delta=None)
-                        st.caption("Today's market price")
-                    with col2:
-                        st.metric("DCF Intrinsic Value", 
-                                 f"${dcf_result['intrinsic_value']:.2f}",
-                                 delta=f"{upside_dcf:+.1f}%")
-                        st.caption("Based on DCF model")
-                    with col3:
-                        if comps_result and comps_result.get('success') and comps_result.get('avg_implied_value'):
-                            upside_comps = comps_result.get('upside_pct', 0)
-                            st.metric("Comps Implied Value", 
-                                     f"${comps_result['avg_implied_value']:.2f}",
-                                     delta=f"{upside_comps:+.1f}%")
-                            st.caption("Based on peer multiples")
-                    
-                    # DCF projection chart
-                    if 'projections' in dcf_result:
-                        st.markdown("### 💵 Free Cash Flow Projections")
-                        
-                        proj_df = pd.DataFrame(dcf_result['projections'])
-                        
-                        fig_fcf = px.bar(proj_df, x='year', y='fcf', 
-                                       title='Projected Free Cash Flows',
-                                       labels={'fcf': 'Free Cash Flow ($)', 'year': 'Year'})
-                        fig_fcf.update_traces(marker_color='lightblue')
-                        st.plotly_chart(fig_fcf, use_container_width=True)
-                        
-                        # PV breakdown
-                        pv_data = {
-                            'Component': ['Projected FCF (Years 1-5)', 'Terminal Value'],
-                            'Present Value': [sum([p['pv'] for p in dcf_result['projections']]), 
-                                             dcf_result['terminal_pv']]
-                        }
-                        fig_pv = px.pie(values=pv_data['Present Value'], names=pv_data['Component'],
-                                      title='Enterprise Value Breakdown')
-                        st.plotly_chart(fig_pv, use_container_width=True)
-                    
-                    # Sensitivity Analysis
-                    st.markdown("### 🎯 Sensitivity Analysis")
-                    st.markdown("*See how intrinsic value changes with different assumptions*")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        # WACC sensitivity
-                        wacc_range = np.linspace(max(0.05, wacc - 0.03), wacc + 0.03, 7)
-                        sensitivity_results = []
-                        
-                        for w in wacc_range:
-                            temp_result = dcf_valuation(
-                                ticker=valuation_ticker,
-                                wacc=w,
-                                terminal_growth_rate=terminal_growth,
-                                forecast_years=int(forecast_years),
-                                revenue_growth_rate=revenue_growth or dcf_result['assumptions']['revenue_growth']
-                            )
-                            if temp_result.get('success'):
-                                sensitivity_results.append({
-                                    'WACC': f"{w*100:.1f}%",
-                                    'Intrinsic Value': temp_result['intrinsic_value']
-                                })
-                        
-                        if sensitivity_results:
-                            sens_df = pd.DataFrame(sensitivity_results)
-                            fig_wacc = px.line(sens_df, x='WACC', y='Intrinsic Value',
-                                              title='Sensitivity to WACC',
-                                              markers=True)
-                            fig_wacc.add_hline(y=dcf_result['current_price'], 
-                                              line_dash="dash", line_color="red",
-                                              annotation_text="Current Price")
-                            st.plotly_chart(fig_wacc, use_container_width=True)
-                    
-                    with col2:
-                        # Growth rate sensitivity
-                        base_growth = revenue_growth or dcf_result['assumptions']['revenue_growth']
-                        growth_range = np.linspace(max(0, base_growth - 0.05), base_growth + 0.05, 7)
-                        growth_sensitivity = []
-                        
-                        for g in growth_range:
-                            temp_result = dcf_valuation(
-                                ticker=valuation_ticker,
-                                wacc=wacc,
-                                terminal_growth_rate=terminal_growth,
-                                forecast_years=int(forecast_years),
-                                revenue_growth_rate=g
-                            )
-                            if temp_result.get('success'):
-                                growth_sensitivity.append({
-                                    'Growth Rate': f"{g*100:.1f}%",
-                                    'Intrinsic Value': temp_result['intrinsic_value']
-                                })
-                        
-                        if growth_sensitivity:
-                            growth_df = pd.DataFrame(growth_sensitivity)
-                            fig_growth = px.line(growth_df, x='Growth Rate', y='Intrinsic Value',
-                                                title='Sensitivity to Revenue Growth',
-                                                markers=True)
-                            fig_growth.add_hline(y=dcf_result['current_price'], 
-                                                line_dash="dash", line_color="red",
-                                                annotation_text="Current Price")
-                            st.plotly_chart(fig_growth, use_container_width=True)
-                    
-                    # Download results
-                    st.markdown("---")
-                    
-                    # Prepare downloadable summary
-                    summary_data = {
-                        'Metric': ['Current Price', 'DCF Intrinsic Value', 'DCF Upside/Downside',
-                                  'Enterprise Value', 'Equity Value', 'WACC', 'Revenue Growth', 
-                                  'Terminal Growth', 'Forecast Years'],
-                        'Value': [
-                            f"${dcf_result['current_price']:.2f}",
-                            f"${dcf_result['intrinsic_value']:.2f}",
-                            f"{dcf_result.get('upside_pct', 0):.1f}%",
-                            f"${dcf_result['enterprise_value']/1e9:.2f}B",
-                            f"${dcf_result['equity_value']/1e9:.2f}B",
-                            f"{dcf_result['assumptions']['wacc']*100:.2f}%",
-                            f"{dcf_result['assumptions']['revenue_growth']*100:.1f}%",
-                            f"{dcf_result['assumptions']['terminal_growth']*100:.1f}%",
-                            f"{dcf_result['assumptions']['forecast_years']} years"
-                        ]
-                    }
-                    
-                    summary_df = pd.DataFrame(summary_data)
-                    st.download_button(
-                        label="📥 Download Valuation Summary (CSV)",
-                        data=summary_df.to_csv(index=False),
-                        file_name=f"{valuation_ticker}_valuation_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
-                    )
-                
-                elif dcf_result:
-                    st.error(f"❌ DCF Analysis Failed: {dcf_result.get('error', 'Unknown error')}")
-                    
-                    if comps_result and not comps_result.get('success'):
-                        st.warning(f"⚠️ Comps Analysis: {comps_result.get('error', 'Could not complete')}")
-            else:
-                st.error("Please select or enter a valid ticker symbol")
-        
-        # Info section for Valuation
-        st.markdown("---")
-        with st.expander("📖 Understanding DCF & Comps Analysis"):
-            st.markdown("""
-            ## Valuation Methods Overview
-            
-            ### DCF (Discounted Cash Flow) Model:
-            - **How**: Projects future free cash flows + discounts to present value using WACC
-            - **Inputs**: Revenue growth, margins, capital expenditures, terminal value
-            - **Best For**: Established companies with predictable, positive cash flows
-            - **Limitations**: Sensitive to growth assumptions; struggles with unprofitable or volatile companies
-            
-            ### Comparable Companies (Comps) Analysis:
-            - **How**: Compares valuation multiples (P/E, P/B, EV/EBITDA) to similar peer companies  
-            - **Inputs**: Current market prices of comparables, their fundamentals
-            - **Best For**: Relative valuation within sector; benchmarking vs peers
-            - **Limitations**: Depends on availability of comparable companies; assumes market is rational
-            
-            ---
-            
-            ## Applicability to Your Portfolio (28 Stocks):
-            
-            ### ✅ **EXCELLENT FIT** (17 stocks)
-            **Profitable, mature companies with stable FCF and clear peers:**
-            - Blue chips: **MSFT, GOOG, AMZN, NVDA, META, JPM, UNH, JNJ**
-            - Complements: **BRK-B, SHOP, AXP, IBKR, HDB, TSM, UBER**
-            - *Why*: Predictable earnings, established peers, public financial data
-            - *Recommendation*: Use both DCF and Comps in parallel for validation
-            
-            ### ⚠️ **MODERATE FIT** (9 stocks)
-            **Growth-stage, high-volatility, or niche companies:**
-            - Tech/Growth: **COIN, KWEB, ZETA, HOOD** (crypto/fintech volatility)
-            - Emerging Markets: **IBN, HDB, BN** (limited peer data, currency risk)
-            - Energy/Transport: **TDW, NE, AMR** (cyclical, commodity exposure)
-            - *Why*: Harder to predict FCF growth & terminal value; fewer comparable peers
-            - *Recommendation*: Use Comps primarily; supplement DCF with scenario analysis
-            
-            ### ❌ **POOR FIT** (2 stocks)
-            **High-risk, special situations:**
-            - **EFX, VAL** (specialized business models, limited comparable data)
-            - *Why*: Unusual capital structure, niche markets, peer selection difficult
-            - *Recommendation*: Use with caution; focus on relative valuation vs peers
-            - **SHV** (Money market fund - not a stock; skip valuation analysis)
-            
-            ### **MKL** (Special)
-            - Berkshire subsidiary; use **BRK-B** comps instead for cleaner valuation
-            
-            ---
-            
-            ## Key Assumptions:
-            - **WACC**: Discount rate = (Cost of Equity × % Equity) + (Cost of Debt × % Debt × (1 - Tax Rate))
-            - **Revenue Growth**: Historical and forward guidance (auto-calculated from 5-year data)
-            - **Terminal Growth**: Long-term perpetual growth (typically 2-3% ≈ GDP growth)
-            - **Risk-Free Rate**: US Treasury 10-year yield (~4% in 2025)
-            - **Market Risk Premium**: Expected stock market return above bonds (~7%)
-            
-            ---
-            
-            ## Interpreting Results:
-            """)
-            
-            # Show gauge legend
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.error("**OVERPRICED** | < -15% upside")
-                st.write("Stock trading above intrinsic value; wait for better entry")
-            with col2:
-                st.warning("**FAIR VALUE** | -15% to +15% upside")
-                st.write("Stock near intrinsic value; buy based on portfolio fit")
-            with col3:
-                st.success("**UNDERPRICED** | > +15% upside")
-                st.write("Stock below intrinsic value; potential margin of safety")
-            
-            st.markdown("""
-            ---
-            
-            ## Best Practices:
-            
-            1. **Use Multiple Methods**: Never rely on single valuation approach
-               - Compare DCF vs. Comps vs. Trading multiples
-               - Look for convergence; if they diverge significantly, dig deeper
-            
-            2. **Sensitivity Analysis**: Test how results change with different assumptions
-               - ±2% WACC change = ±10-20% value impact
-               - Revenue growth impacts terminal value heavily
-               - Always run sensitivity scenarios
-            
-            3. **Margin of Safety**: Wait for significant discounts before investing
-               - Aim for 15-25% upside minimum = buffer against estimation error
-               - Don't buy fairly valued stocks; demand a discount
-            
-            4. **Monitor Quarterly**: Valuation changes as earnings, growth rates evolve
-               - Rerun analysis when new quarterly earnings released
-               - Update WACC if interest rates or risk premium shifts
-               - Track actual vs. projected FCF; recalibrate model if diverging
-            
-            5. **Combine with Technical**: Multiple lenses improve decision quality
-               - Use valuation + technical (momentum, support/resistance)
-               - Use valuation + fundamental (earnings quality, balance sheet)
-               - Use valuation + sentiment (analyst ratings, insider buying)
-            
-            ⚠️ **Important Disclaimers**:
-            - Models are only as good as their assumptions (garbage in = garbage out)
-            - Historical data doesn't guarantee future performance
-            - Past correlations may not persist (market regimes change)
-            - Always consult professional advisors before major decisions
-            """)
-        
-        return  # Early return for valuation analysis
-    
-    if st.button("🔍 Generate AI Analysis", use_container_width=True):
-        try:
-            with st.spinner("Loading data and generating analysis..."):
-                # Load portfolio data
-                prices, returns = load_portfolio_data(st.session_state.selected_stocks, start_date, end_date)
-                
-                # Default equal-weight portfolio for analysis
-                weights = pd.Series(dict(zip(st.session_state.selected_stocks, 
-                                            [1/len(st.session_state.selected_stocks)] * len(st.session_state.selected_stocks))))
-            
-            st.markdown("---")
-            
-            if analysis_type == "Portfolio Analysis":
-                st.subheader("📊 Portfolio Composition Deep Dive")
-                
-                # Generate composition analysis
-                composition = get_portfolio_composition_analysis(weights, returns)
-                st.markdown(composition)
-                
-                # Show metrics
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    num_holdings = (weights > 1e-4).sum()
-                    st.metric("Number of Holdings", int(num_holdings))
-                with col2:
-                    hhi = (weights ** 2).sum()
-                    st.metric("Concentration (HHI)", f"{hhi:.3f}")
-                with col3:
-                    div_ratio = weights.sum() / np.sqrt((weights ** 2).sum())
-                    st.metric("Diversification Ratio", f"{div_ratio:.2f}x")
-                with col4:
-                    n_stocks = len(st.session_state.selected_stocks)
-                    equal_weight_hhi = 1 / n_stocks
-                    st.metric("Equal-Weight HHI", f"{equal_weight_hhi:.3f}")
-                
-                # Top holdings pie chart
-                top_holdings = weights.nlargest(10)
-                fig_pie = px.pie(values=top_holdings, names=top_holdings.index, 
-                                title="Top 10 Holdings Concentration")
-                st.plotly_chart(fig_pie, use_container_width=True)
-                
-            elif analysis_type == "Investment Recommendations":
-                st.subheader("💡 AI Investment Recommendations")
-                
-                # Placeholder for model predictions and benchmarks
-                model_predictions = {}  # Would get this from backtester in real scenario
-                benchmark_comparison = {}
-                risk_factors = {
-                    'beta_portfolio': 1.0,
-                    'size_portfolio': 20.0,
-                    'value_portfolio': 0.5,
-                    'momentum_portfolio': 0.05,
-                    'quality_portfolio': 0.3
-                }
-                
-                # Generate market context
-                market_context = generate_market_context_summary(list(weights.index))
-                st.markdown(market_context)
-                
-                # Generate recommendations
-                recommendations = generate_investment_recommendation(
-                    "", model_predictions, benchmark_comparison, risk_factors,
-                    weights=weights, returns_data=returns
-                )
-                st.markdown(recommendations)
-                
-                # Action items checklist
-                st.markdown("### ✅ Action Items Checklist")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.checkbox("Review top-3 holdings for concentration risk")
-                    st.checkbox("Check sector diversification (no sector > 30%)")
-                    st.checkbox("Monitor beta exposure relative to market")
-                with col2:
-                    st.checkbox("Evaluate momentum trends in holdings")
-                    st.checkbox("Check liquidity of positions (daily volumes)")
-                    st.checkbox("Plan quarterly rebalancing with DRO/LASSO models")
-            
-            elif analysis_type == "Complementary Stocks":
-                st.subheader("🎯 Find Complementary Stock Candidates")
-                
-                # Get candidate universe
-                all_candidates = [t for t in ALL_STOCKS if t not in st.session_state.selected_stocks]
-                
-                if all_candidates:
-                    num_suggestions = st.slider("Number of suggestions", 1, len(all_candidates), 5)
-                    
-                    with st.spinner("Analyzing correlations and fundamentals..."):
-                        suggestions = find_complementary_stocks(
-                            weights, all_candidates, returns, num_suggestions
-                        )
-                    
-                    st.markdown("### Recommended Additions")
-                    
-                    # Display suggestions
-                    for i, (ticker, info) in enumerate(suggestions.items(), 1):
-                        with st.expander(f"{i}. **{ticker}** - {info['sector']}"):
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("Correlation to Portfolio", f"{info['correlation_to_portfolio']:.2f}",
-                                         delta="Lower is better (more diversifying)")
-                            with col2:
-                                if not pd.isna(info['pe_ratio']):
-                                    st.metric("P/E Ratio", f"{info['pe_ratio']:.1f}")
-                            with col3:
-                                if not pd.isna(info['roe']):
-                                    st.metric("ROE", f"{info['roe']*100:.1f}%")
-                            
-                            st.write(f"**Rationale**: {info['rationale']}")
-                            
-                            if st.button(f"✅ Add {ticker} to portfolio", key=f"add_{ticker}"):
-                                st.session_state.selected_stocks.append(ticker)
-                                st.success(f"Added {ticker} to portfolio!")
-                                st.rerun()
-                else:
-                    st.info("All available stocks are already in your portfolio!")
-        
-        except Exception as e:
-            st.error(f"Error during AI analysis: {e}")
-            import traceback
-            st.write(traceback.format_exc())
-    
-    # Information section
-    st.markdown("---")
-    st.markdown("### 📚 About This Analysis")
-    
-    with st.expander("How does AI analysis work?"):
-        st.markdown("""
-        **Portfolio Composition Analysis:**
-        - Analyzes concentration risk (HHI index)
-        - Evaluates diversification effectiveness
-        - Provides natural language insights on portfolio structure
-        
-        **Investment Recommendations:**
-        - Synthesizes outputs from 8 optimization models
-        - Provides market context and macro considerations
-        - Generates actionable next steps for portfolio management
-        
-        **Complementary Stock Finder:**
-        - Calculates correlation to current portfolio
-        - Identifies low-correlation names for diversification
-        - Analyzes fundamental metrics (P/E, ROE, sector)
-        - Suggests specific additions based on factor analysis
-        
-        All analysis is data-driven and based on:
-        - Current market data from Yahoo Finance
-        - Historical correlations (1-2 years of data)
-        - Fundamental metrics and valuation ratios
-        - Optimization model consensus
-        """)
 
 # ==================== CHATBOT PAGE ====================
 
@@ -2557,7 +1809,7 @@ def run_ml_ranking_cached(tickers):
     return ranker.rank_stocks(tickers)
 
 def page_ml_ranking():
-    st.title("🤖 ML Stock Ranking & Prediction")
+    st.title("🤖 AI Analysis")
     
     st.info("""
     **Machine Learning-Based Stock Ranking System**
@@ -2953,8 +2205,8 @@ def page_modeling():
                 # ===== DISPLAY RESULTS =====
                 st.markdown("---")
                 
-                # If DCF succeeded, display results
-                if dcf_result:
+                # Check if DCF analysis succeeded
+                if dcf_result and dcf_result.get('success'):
                     st.subheader("📊 Valuation Summary")
                     
                     # Create ValuationReport for formatting
@@ -2966,13 +2218,15 @@ def page_modeling():
                     
                     with col_gauge:
                         upside_dcf = dcf_result.get('upside_pct', 0)
+                        intrinsic_value = dcf_result.get('intrinsic_value', 0)
                         
-                        # Create gauge chart
+                        # Create gauge chart showing upside percentage
                         gauge_fig = go.Figure(data=[go.Indicator(
                             mode="gauge+number+delta",
                             value=upside_dcf,
-                            title={'text': "DCF Valuation"},
-                            delta={'reference': 0, 'suffix': "%"},
+                            number={'suffix': "%", 'font': {'size': 28}},
+                            title={'text': "DCF Upside/Downside"},
+                            delta={'reference': 0, 'suffix': "%", 'font': {'size': 16}},
                             gauge={
                                 'axis': {'range': [-50, 50]},
                                 'bar': {'color': "darkblue" if upside_dcf > 15 else "orange" if upside_dcf > -15 else "darkred"},
@@ -2985,7 +2239,17 @@ def page_modeling():
                             },
                             domain={'x': [0, 1], 'y': [0, 1]}
                         )])
-                        gauge_fig.update_layout(height=350, margin=dict(l=10, r=10, t=50, b=10))
+                        
+                        # Add annotation for intrinsic value at the center
+                        gauge_fig.add_annotation(
+                            text=f"<b>IV: ${intrinsic_value:.2f}</b>",
+                            x=0.5, y=0.35,
+                            showarrow=False,
+                            font=dict(size=16, color="black"),
+                            xref="paper", yref="paper"
+                        )
+                        
+                        gauge_fig.update_layout(height=350, margin=dict(l=10, r=10, t=60, b=10))
                         st.plotly_chart(gauge_fig, use_container_width=True)
                         
                         # Status text
@@ -3052,35 +2316,44 @@ def page_modeling():
                     # Sensitivity analysis
                     st.markdown("### 🎯 Sensitivity Analysis")
                     
-                    col_sens1, col_sens2 = st.columns(2)
-                    
-                    with col_sens1:
-                        try:
-                            sensitivity = dcf_analysis.generate_sensitivity_analysis(
-                                wacc, terminal_growth, int(forecast_years), revenue_growth
-                            )
-                            if sensitivity is not None:
-                                st.markdown("**WACC vs Revenue Growth Sensitivity**")
-                                # Convert sensitivity dict to DataFrame for table display
-                                sens_list = []
-                                for wacc_key in sorted(sensitivity.keys()):
-                                    for growth_key in sorted(sensitivity[wacc_key].keys()):
-                                        sens_list.append({
-                                            'WACC': wacc_key,
-                                            'Growth': growth_key,
-                                            'Intrinsic Value': f"${sensitivity[wacc_key][growth_key]:.2f}"
-                                        })
-                                sens_df = pd.DataFrame(sens_list)
-                                st.dataframe(sens_df, use_container_width=True, hide_index=True)
-                        except Exception as e:
-                            st.info("🔄 Sensitivity analysis in progress...")
-                    
-                    with col_sens2:
-                        st.markdown(f"**Current Assumptions**")
-                        assumptions = dcf_result.get('assumptions', {})
-                        st.write(f"• WACC: {assumptions.get('wacc', 0)*100:.2f}%")
-                        st.write(f"• Revenue Growth: {assumptions.get('revenue_growth', 0)*100:.1f}%")
-                        st.write(f"• Terminal Growth: {assumptions.get('terminal_growth', 0)*100:.1f}%")
+                    try:
+                        sensitivity = dcf_analysis.generate_sensitivity_analysis(
+                            wacc, terminal_growth, int(forecast_years), revenue_growth
+                        )
+                        if sensitivity is not None and len(sensitivity) > 0:
+                            # Get pivoted table for better visualization
+                            display_df, numeric_df = dcf_analysis.get_sensitivity_table_pivoted()
+                            
+                            if not display_df.empty:
+                                st.markdown("**WACC (left axis) vs Revenue Growth (top axis) — Intrinsic Value**")
+                                
+                                # Display the pivot table
+                                st.dataframe(
+                                    display_df, 
+                                    use_container_width=True,
+                                    height=400
+                                )
+                                
+                                # Additional info
+                                col_sens_info1, col_sens_info2 = st.columns(2)
+                                with col_sens_info1:
+                                    assumptions = dcf_result.get('assumptions', {})
+                                    st.markdown("**Current Base Assumptions**")
+                                    st.write(f"• WACC: {assumptions.get('wacc', 0)*100:.2f}%")
+                                    st.write(f"• Revenue Growth: {assumptions.get('revenue_growth', 0)*100:.1f}%")
+                                    st.write(f"• Terminal Growth: {assumptions.get('terminal_growth', 0)*100:.1f}%")
+                                
+                                with col_sens_info2:
+                                    st.markdown("**Table Legend**")
+                                    st.write(f"🔵 Base WACC: {wacc*100:.2f}%")
+                                    st.write(f"🟢 Base Growth: {revenue_growth*100:.1f}%")
+                                    st.write(f"Range: ±3% around base values")
+                            else:
+                                st.info("🔄 Sensitivity table generation in progress...")
+                        else:
+                            st.info("🔄 Generating sensitivity analysis...")
+                    except Exception as e:
+                        st.info(f"🔄 Sensitivity analysis in progress... ({str(e)[:50]})")
                         st.write(f"• Tax Rate: {assumptions.get('tax_rate', 0)*100:.1f}%")
                         st.write(f"• Cost of Debt: {assumptions.get('cost_of_debt', 0)*100:.1f}%")
                     
@@ -3125,7 +2398,10 @@ def page_modeling():
                     )
                 
                 else:
-                    st.error("❌ Valuation analysis failed. Please check ticker and try again.")
+                    if dcf_result and dcf_result.get('error'):
+                        st.error(f"❌ {dcf_result.get('error')}")
+                    else:
+                        st.error("❌ Valuation analysis failed. Please check ticker and try again.")
                     st.info("💡 Tip: Make sure the ticker is valid and has available financial data.")
             
             except Exception as e:
@@ -3177,7 +2453,7 @@ def main():
         st.markdown("### Navigation")
         page = st.radio(
             "Select Page:",
-            ["🏠 Home", "📚 Description", "🛠️ Builder", "📊 Backtest", "� Modeling", "�📈 Holdings", "🤖 ML Ranking", "🤖 AI Analysis", "💬 Chatbot"],
+            ["🏠 Home", "📈 Holdings", "📊 Backtest", "💰 Modeling", "🤖 AI Analysis", "💬 Chatbot", "📚 Description"],
             label_visibility="collapsed",
             key="page_selection"
         )
@@ -3185,28 +2461,28 @@ def main():
         # Map radio selection to page names
         page_map = {
             "🏠 Home": "Home",
-            "📚 Description": "Description",
-            "🛠️ Builder": "Portfolio Builder",
+            "📈 Holdings": "Holdings",
             "📊 Backtest": "Backtest",
-            "� Modeling": "Modeling",
-            "�📈 Holdings": "Holdings Analysis",
-            "🤖 ML Ranking": "ML Ranking",
+            "💰 Modeling": "Modeling",
             "🤖 AI Analysis": "AI Analysis",
-            "💬 Chatbot": "Chatbot"
+            "💬 Chatbot": "Chatbot",
+            "📚 Description": "Description"
         }
         selected_page = page_map.get(page, "Home")
         
         st.divider()
         
         # Model information
-        st.markdown("### 6 Models")
+        st.markdown("### 8 Models")
         models_info = [
             ("GMV", "Minimize volatility"),
             ("CAPM", "Risk-adjusted returns"),
             ("BL", "Market equilibrium"),
             ("HRP", "Hierarchical clustering"),
             ("CVaR", "Tail risk control"),
-            ("LASSO", "Sparse portfolio")
+            ("LASSO", "Sparse portfolio"),
+            ("RL", "Reinforcement learning"),
+            ("DRO", "Robust optimization")
         ]
         
         with st.expander("📋 Model Details", expanded=False):
@@ -3232,18 +2508,14 @@ def main():
         page_home()
     elif page == "Description":
         page_description()
-    elif page == "Portfolio Builder":
-        page_portfolio_builder()
+    elif page == "Holdings":
+        page_holdings()
     elif page == "Backtest":
         page_backtest()
     elif page == "Modeling":
         page_modeling()
-    elif page == "Holdings Analysis":
-        page_holdings_analysis()
-    elif page == "ML Ranking":
-        page_ml_ranking()
     elif page == "AI Analysis":
-        page_llm_analysis()
+        page_ml_ranking()
     elif page == "Chatbot":
         page_chatbot()
 

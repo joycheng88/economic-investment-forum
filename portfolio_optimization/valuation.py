@@ -57,6 +57,47 @@ def _get_cached_or_fetch(cache_key: str, fetch_func, timeout: int = 10):
     return None
 
 
+def _validate_financial_data_quality(data: Dict) -> Tuple[bool, str]:
+    """
+    Validate financial data quality and detect currency/scale issues
+    Returns: (is_valid, warning_message)
+    """
+    if not data:
+        return False, "No data available"
+    
+    market_cap = data.get('market_cap', 0)
+    if market_cap <= 0:
+        return False, "No market cap data available - likely an ETF or non-equity security"
+    
+    # Check for impossible ratios indicating currency mismatch
+    total_debt = data.get('total_debt', 0)
+    fcf = data.get('fcf', 0)
+    revenue = data.get('revenue', 0)
+    
+    # Debt/Market Cap ratio should typically be 0.1 - 2.0
+    # If > 10x, likely a currency/scale issue
+    if total_debt > 0:
+        debt_ratio = total_debt / market_cap
+        if debt_ratio > 10:
+            return False, f"⚠️  Data quality issue: Debt/Market Cap ratio = {debt_ratio:.1f}x (should be <2x). Financial statements likely in foreign currency (e.g., INR, JPY) not converted to USD. Consider using USD-listed alternatives."
+    
+    # FCF/Market Cap ratio should typically be 0.05 - 1.0
+    # If > 5x, likely a currency issue
+    if fcf and fcf > 0:
+        fcf_ratio = fcf / market_cap
+        if fcf_ratio > 5:
+            return False, f"⚠️  Data quality issue: FCF/Market Cap ratio = {fcf_ratio:.1f}x (should be <1x). Financial statements likely in foreign currency. Consider using USD-listed alternatives."
+    
+    # Revenue/Market Cap ratio should typically be 0.5 - 5.0
+    # If > 15x, likely a currency issue
+    if revenue > 0:
+        revenue_ratio = revenue / market_cap
+        if revenue_ratio > 15:
+            return False, f"⚠️  Data quality issue: Revenue/Market Cap ratio = {revenue_ratio:.1f}x (should be <5x). Financial statements likely in foreign currency. Consider using USD-listed alternatives."
+    
+    return True, ""
+
+
 def fetch_financial_data(ticker: str, full_data: bool = True, timeout: int = 10) -> Dict:
     """
     OPTIMIZED: Fetch financial data with timeout and smart caching
@@ -119,6 +160,14 @@ def fetch_financial_data(ticker: str, full_data: bool = True, timeout: int = 10)
                 except:
                     net_income = 0
             
+            # Extract operating income
+            operating_income = 0
+            if income_stmt is not None and 'Operating Income' in income_stmt.index:
+                try:
+                    operating_income = float(income_stmt.loc['Operating Income'].iloc[0])
+                except:
+                    operating_income = 0
+            
             fcf = None
             if cash_flow is not None and 'Free Cash Flow' in cash_flow.index:
                 try:
@@ -166,6 +215,7 @@ def fetch_financial_data(ticker: str, full_data: bool = True, timeout: int = 10)
                 'revenue_history': revenue_history,
                 'revenue_growth': max(revenue_growth, 0),  # Ensure non-negative
                 'net_income': net_income,
+                'operating_income': operating_income,
                 'fcf': fcf,
                 'total_debt': total_debt,
                 'cash': cash,
@@ -201,6 +251,11 @@ def dcf_valuation(ticker: str,
         if not data:
             return {'success': False, 'error': f'Could not fetch data for {ticker}', 'ticker': ticker}
         
+        # Validate data quality and detect currency issues
+        is_valid, warning_msg = _validate_financial_data_quality(data)
+        if not is_valid:
+            return {'success': False, 'error': warning_msg, 'ticker': ticker}
+        
         # Calculate WACC if not provided
         if wacc is None:
             beta = data.get('beta', 1.0)
@@ -217,16 +272,38 @@ def dcf_valuation(ticker: str,
         if revenue_growth_rate is None:
             revenue_growth_rate = max(data.get('revenue_growth', 0.05), 0)
         
-        # Base FCF estimation
+        # Base FCF estimation with improved logic for capital-intensive companies
         base_revenue = data['revenue']
         base_fcf = data['fcf'] if data['fcf'] else data['net_income'] * 0.8
+        base_net_income = data.get('net_income', 0)
+        operating_income = data.get('operating_income', 0)
         
         if base_revenue <= 0:
             return {'success': False, 'error': 'No revenue data available', 'ticker': ticker}
         
-        fcf_margin = abs(base_fcf) / base_revenue if base_revenue > 0 else 0.10
+        # Calculate various margins
+        raw_fcf_margin = abs(base_fcf) / base_revenue if base_revenue > 0 else 0.10
+        net_income_margin = base_net_income / base_revenue if base_revenue > 0 else 0
+        operating_margin = operating_income / base_revenue if base_revenue > 0 else 0
         
-        # Project future cash flows (simplified)
+        # For companies with low FCF but healthy earnings (capital-intensive):
+        # Use NOPAT (Operating Income * (1 - Tax Rate)) as proxy for normalized FCF
+        # This captures operational earning power even during heavy reinvestment phases
+        if raw_fcf_margin < 0.03 and operating_margin > 0.05:
+            # NOPAT approach: Operating income is less affected by CapEx timing
+            nopat = operating_income * (1 - tax_rate)
+            normalized_fcf = nopat
+            fcf_margin = normalized_fcf / base_revenue
+            use_nopat = True
+        else:
+            # Standard FCF approach
+            fcf_margin = raw_fcf_margin
+            use_nopat = False
+        
+        # Ensure minimum reasonable FCF margin
+        fcf_margin = max(fcf_margin, 0.02)
+        
+        # Project future cash flows
         projections = []
         present_values = []
         
@@ -297,6 +374,7 @@ def dcf_valuation(ticker: str,
                 'beta': data.get('beta', 1.0),
                 'tax_rate': tax_rate,
                 'cost_of_debt': cost_of_debt,
+                'valuation_method': 'NOPAT-based' if use_nopat else 'FCF-based',
             },
             'financial_data': data
         }

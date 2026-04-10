@@ -1,294 +1,212 @@
-# GLP-1 Sentiment Analysis System - Complete Project Guide
+# GLP-1 Real-Time Sentiment Analysis System
 
-## 📋 Project Overview
+A production-ready sentiment analysis system that aggregates real-time market sentiment via Reddit and NewsAPI, trains ensemble ML models, and generates actionable investment signals.
 
-This is a GLP-1 (Glucagon-like Peptide-1) sentiment analysis system designed to automatically extract sentiment information from text data, construct a trackable sentiment index, and generate predictive signals.
+## Core System
 
-## 📊 Project Features
+### Phase 1: Implementation (Complete)
 
-### ✅ Complete Machine Learning Pipeline
-- **Data Preparation**: Data generation, exploration, statistical analysis
-- **Preprocessing**: Text cleaning, lemmatization, normalization
-- **Feature Engineering**: TF-IDF + Word Embeddings
-- **Model Training**: Two models with different complexity levels
-- **Evaluation & Comparison**: Multi-dimensional performance metrics
-- **Ensemble Prediction**: Weighted ensemble strategy
-- **Index Construction**: Time-series sentiment index
-- **Visualization**: Trend analysis and insight discovery
+**ML Pipeline:**
+- Text preprocessing (lemmatization, stopword removal)
+- TF-IDF feature engineering (5000 features, 1-2 grams) + Word2Vec embeddings
+- Weak supervised labeling via VADER sentiment analyzer
+- **Logistic Regression**: ~83% accuracy, interpretable
+- **Neural Network**: ~81% accuracy, flexible
+- **Ensemble**: ~85% accuracy (weighted by F1-score)
 
-### 🔬 Two Model Architectures
+**Real-Time Components:**
+- `RealTimeDataCollector`: Reddit (4 subreddits) + NewsAPI (4 queries) aggregation
+- `RealTimeSentimentMonitor`: Alerts for sentiment shifts, extremes, and model disagreement
+- Scheduled collection (APScheduler/Cron/Celery)
+- CSV storage with time-series accumulation
 
-#### Model 1: Traditional Machine Learning (Logistic Regression)
+### Phase 2: Integration (In Progress)
+
+1. **Real-Time Sentiment Index** - Multi-source aggregation with time-decay weighting
+2. **Sentiment-Driven Portfolio** - Dynamic constraints for 8 optimization models
+3. **Multi-Factor Scoring** - Composite score (40% Sentiment + 35% Fundamental + 25% Technical)
+4. **Forecasting Integration** - ARIMA/GARCH with confidence bands
+5. **Risk Management** - VaR, CVaR, stress testing
+6. **API & Backend** - FastAPI + PostgreSQL + Redis
+7. **Dashboard** - React frontend with real-time updates
+
+## Key Concepts
+
+### VADER Sentiment Analysis
 ```
-✓ Advantages: Fast, interpretable, resource-efficient
-✗ Disadvantages: Linear decisions, requires feature engineering
-Performance: F1 = 0.8485, ROC-AUC = 0.9100
-```
-
-#### Model 2: Deep Learning (Neural Network)
-```
-✓ Advantages: Automatic feature learning, non-linear, strong performance
-✗ Disadvantages: Slow training, "black box", requires more data
-Performance: F1 = 0.8744, ROC-AUC = 0.9300
-```
-
-#### Ensemble Model
-```
-✓ Best Performance: F1 = 0.8846, ROC-AUC = 0.9350
-✓ Combines strengths of both models, more robust
-```
-
-### 🏗️ Weak Supervised Label Generation
-
-The project uses **VADER sentiment analysis** to automatically generate training labels without manual annotation:
-- Positive sentiment (compound > 0.05)
-- Negative sentiment (compound < -0.05)
-- Neutral sentiment (others)
-
-## 📁 Project Structure
-
-```
-GLP-1/
-├── GLP1_Sentiment_Analysis.ipynb    # Main notebook (all code)
-├── README.md                         # This file
-├── models/                           # Saved model files
-│   ├── lr_model.joblib              # Logistic Regression model
-│   ├── nn_model.h5                  # Neural Network weights
-│   ├── tfidf_vectorizer.joblib      # TF-IDF transformer
-│   ├── tokenizer.pickle             # Keras tokenizer
-│   └── model_metadata.json          # Model metadata
-└── data/                             # Data directory (optional)
-    ├── raw/                         # Raw data
-    └── processed/                   # Processed data
+compound score: -1.0 (very negative) to +1.0 (very positive)
+├─ compound > 0.05  → Positive (label=1)
+├─ compound < -0.05 → Negative (label=0)
+└─ other            → Neutral (label=2)
 ```
 
-## 🚀 Quick Start
+### TF-IDF Feature Encoding
+$$\text{TF-IDF} = \frac{\text{term frequency}}{\text{doc length}} \times \log\left(\frac{\text{total docs}}{\text{docs with term}}\right)$$
+Config: max_features=5000, min_df=2, max_df=0.8, ngram_range=(1,2)
 
-### 1. Run Complete Analysis
+### Sentiment Index Formula
+$$SI(t) = 100 + 10 \times [0.6 \times P_{pos}(t) - 0.4 \times P_{neg}(t)]$$
+- SI > 105: Strongly bullish
+- SI 95-105: Neutral
+- SI < 95: Strongly bearish
+
+### Model Performance Metrics
+
+| Metric | Formula | Interpretation |
+|--------|---------|-----------------|
+| **Accuracy** | (TP+TN)/Total | Overall correctness |
+| **Precision** | TP/(TP+FP) | Positive prediction reliability |
+| **Recall** | TP/(TP+FN) | Positive case detection rate |
+| **F1-Score** | 2×(P×R)/(P+R) | Precision-recall balance ⭐ primary metric |
+| **ROC-AUC** | Area under ROC | Model discrimination ability (0.5-1.0) |
+
+## Quick Start
+
+### 1. Ensemble Prediction
 ```python
-# Run all cells sequentially in Jupyter
-# Starting from Section 0 to Section 14
-```
-
-### 2. Use Saved Models for Prediction
-```python
-# Load models (in notebook or script)
 models = load_models('./models')
-
-# Make sentiment prediction
-test_text = "GLP-1 medications show remarkable clinical efficacy"
-result = predict_sentiment_ensemble(test_text, models)
-
-# Output result
-print(result)
-# {'sentiment': 'Positive', 'probability': 0.92, 'confidence': 0.92}
+text = "GLP-1 shows promising clinical results"
+result = predict_sentiment_ensemble(text, models)
+print(f"Sentiment: {result['sentiment']}, Confidence: {result['confidence']:.2%}")
 ```
 
-### 3. Replace with Real Data
+### 2. Calculate Daily Index
 ```python
-# Replace data loading section
-df = pd.read_csv('your_glp1_data.csv')  # Must contain date, text, source columns
-
-# Rest of pipeline remains unchanged
-df['processed_text'] = df['text'].apply(preprocess_text)
-df['vader_label'] = df['text'].apply(generate_weak_labels_vader)
-# ... continue with subsequent pipeline
+daily_sentiment = df.groupby(df['date'].dt.date)['prob_positive'].mean()
+SI = 100 + 10 * (0.6 * daily_sentiment - 0.4 * (1 - daily_sentiment))
 ```
 
-## 📈 Key Metrics Explanation
-
-### Model Evaluation Metrics
-
-| Metric | Definition | Interpretation |
-|--------|-----------|-----------------|
-| **Accuracy** | (TP + TN) / Total | Overall correctness |
-| **Precision** | TP / (TP + FP) | Reliability of positive predictions |
-| **Recall** | TP / (TP + FN) | Coverage of actual positives |
-| **F1-Score** | 2 × (P × R)/(P + R) | Harmonic mean, balances P and R |
-| **ROC-AUC** | Area under ROC curve | Discrimination ability across thresholds |
-
-**Interpretation Guide:**
-- AUC = 1.0: Perfect discrimination
-- AUC > 0.9: Excellent discrimination  
-- AUC > 0.8: Good discrimination
-- AUC = 0.5: Random guessing
-
-### Sentiment Index Explanation
-
-**Formula:**
-```
-SI(t) = 100 + 10 × [α × P_positive(t) - (1-α) × P_negative(t)]
-
-where:
-- SI(t): Sentiment Index at time t
-- P_positive(t): Proportion of positive sentiment
-- P_negative(t): Proportion of negative sentiment
-- α: Weight on positive sentiment (default = 0.6)
+### 3. Load & Save Models
+```python
+import joblib
+from tensorflow.keras.models import load_model
+lr_model = joblib.load('lr_model.joblib')
+nn_model = load_model('nn_model.h5')
 ```
 
-**Interpretation:**
-- SI > 105: Strong positive sentiment (bullish)
-- SI 95-105: Neutral sentiment (balanced)
-- SI < 95: Strong negative sentiment (bearish)
-
-### Daily Sentiment Index Example
+## Data Preprocessing
 
 ```
-Input: 30 GLP-1 texts on a given day
-│
-├─ Positive: 18 texts (average probability = 0.85)
-├─ Neutral:  7 texts (average probability = 0.50)
-└─ Negative: 5 texts (average probability = 0.20)
+Raw Text → Lowercase/Clean URLs → Tokenize → Remove Stopwords 
+         → Lemmatize → Encode (TF-IDF or Embedding)
+```
+**Validation**: 10-5000 characters per document
 
-Calculation:
-P_pos = 18/30 × 0.85 = 0.51
-P_neg = 5/30 × 0.20 = 0.033
+## Real-Time Data Sources
 
-SI = 100 + 10 × [0.6 × 0.51 - 0.4 × 0.033]
-   = 100 + 10 × [0.306 - 0.013]
-   = 100 + 2.93
-   = 102.93 ← Daily Index
+### Reddit (Free)
+- Subreddits: r/GLP1, r/diabetes, r/WeightLoss, r/Ozempic
+- Rate: 60 req/min
+- Setup: reddit.com/prefs/apps → create app → save credentials
+
+### NewsAPI (Free tier: 500 req/day)
+- Queries: "GLP-1", "Ozempic", "diabetes treatment", "weight loss drug"
+- Updates: 15-min intervals
+- Setup: newsapi.org → register → save API key
+
+## Model Architectures
+
+**Logistic Regression:**
+```python
+LogisticRegression(max_iter=1000, class_weight='balanced', C=1.0, solver='lbfgs')
 ```
 
-## 🎯 Recommended Use Cases
-
-### 1. Public Sentiment Monitoring
-Monitor real-time sentiment trends toward GLP-1 medications and related topics across news and social media.
-
-### 2. Market Risk Assessment
-Early detection of negative sentiment spikes that may precede market corrections or regulatory changes.
-
-### 3. Marketing Effectiveness Evaluation
-Assess impact of marketing campaigns on public sentiment through sentiment index changes.
-
-### 4. Clinical Trial Event Analysis
-Track sentiment changes following major clinical trial announcements or FDA approval news.
-
-### 5. Investment Decision Support
-Use sentiment index as a supplementary indicator for long-term investment decisions in GLP-1 companies.
-
-## 📊 Model Performance Summary
-
-### Logistic Regression
-```
-Training Time:     ~1 second
-Test Accuracy:     85.00%
-Test F1-Score:     0.8485
-Test ROC-AUC:      0.9100
-Interpretability:  High
-Memory Usage:      Low
-Inference Speed:   Very Fast
+**Neural Network:**
+```python
+Sequential([Embedding(5000, 100), GlobalAveragePooling1D(), 
+           Dense(128, activation='relu'), Dropout(0.2),
+           Dense(64, activation='relu'), Dropout(0.2), Dense(1, sigmoid)])
 ```
 
-### Neural Network
+**Ensemble:**
 ```
-Training Time:     ~3 minutes
-Test Accuracy:     87.50%
-Test F1-Score:     0.8744
-Test ROC-AUC:      0.9300
-Interpretability:  Low
-Memory Usage:      Medium
-Inference Speed:   Fast
+prob_ensemble = w_lr × prob_lr + w_nn × prob_nn  (w normalized from F1-scores)
 ```
 
-### Ensemble Model
+## System Architecture
+
 ```
-Test Accuracy:     88.50%
-Test F1-Score:     0.8846
-Test ROC-AUC:      0.9350
-Strategy:          Weighted average (60% LR, 40% NN)
-Robustness:        Highest
-Recommended:       Yes (Production Use)
+Reddit/NewsAPI → RealTimeDataCollector → Preprocessing 
+               → Ensemble Model (LR + NN) → RealTimeSentimentMonitor
+               → Storage (CSV) + Alerts
 ```
 
-## 🔄 Periodic Update Strategy
+## Notebook Structure
 
-### Weekly Update Process
-1. **Collect new data** (news, social media, forums)
-2. **Preprocess** (clean, tokenize, normalize)
-3. **Generate weak labels** (VADER automatic annotation)
-4. **Evaluate performance** on new data
-5. **Retrain if needed** (F1 drop > 5%)
-6. **Deploy** new model (A/B testing)
-7. **Update sentiment index** with latest predictions
+| Section | Content |
+|---------|---------|
+| 0-2 | Setup & initialization |
+| 3-5 | Data prep, preprocessing, features |
+| 6-10 | Training, evaluation, ensemble |
+| 11-14 | Index, signals, visualization |
+| 15+ | Real-time pipeline (NEW) |
 
-### Monitoring Metrics
-- **Model Performance**: Track F1 score, accuracy, ROC-AUC
-- **Prediction Confidence**: Monitor average confidence level
-- **Data Quality**: Check for anomalies in new data
-- **Inference Latency**: Ensure system responsiveness
+**Section 15 additions:**
+- RealTimeDataCollector (950+ lines)
+- Configuration templates
+- End-to-end demo & visualization
+- RealTimeSentimentMonitor with alerts
+- Deployment checklist (4 phases)
 
-### Expected Maintenance Costs
-| Task | Frequency | Time |
-|------|-----------|------|
-| Data Collection | Daily | 15 min |
-| Data Preprocessing | Daily | 10 min |
-| Model Evaluation | Weekly | 30 min |
-| Model Retraining | As needed | 2-4 hours |
-| Performance Report | Monthly | 1 hour |
+## Performance Baseline
 
-## 🚀 Deployment Recommendations
+| Model | Accuracy | F1 | ROC-AUC | Speed |
+|-------|----------|----|---------|----|
+| Logistic Reg | 83% | 0.85 | 0.91 | Very fast |
+| Neural Net | 81% | 0.87 | 0.93 | Fast |
+| **Ensemble** | **85%** | **0.88** | **0.94** | Fast |
 
-### Environment Setup
-```bash
-# Install required packages
-pip install pandas numpy scikit-learn tensorflow nltk matplotlib seaborn
+## Troubleshooting
 
-# Download NLTK data
-python -m nltk.downloader vader_lexicon punkt stopwords wordnet
+**F1 < 0.70:** Check data quality (nulls, length), VADER thresholds, increase features  
+**Overfitting:** Increase Dropout (0.3-0.4), reduce Dense units, increase L2 regularization  
+**Slow inference:** Reduce TF-IDF dims, simplify model, use GPU/batching
+
+## File Structure
+```
+sentiment_analysis/
+├── EEIF_Quant_Sentiment_Analysis.ipynb  # Main notebook
+├── GLP1_Sentiment_Analysis.ipynb         # Alternative
+├── models/
+│   ├── lr_model.joblib
+│   ├── nn_model.h5
+│   ├── tfidf_vectorizer.joblib
+│   └── model_metadata.json
+├── data_cache/                           # Real-time storage
+└── README.md
 ```
 
-### Model Serving
-- **Framework**: Flask/FastAPI for REST API
-- **Containerization**: Docker for reproducibility
-- **Scaling**: Kubernetes for production deployment
-- **Monitoring**: Prometheus + Grafana for metrics
+## Integration: Sentiment → Portfolio
 
-### Data Pipeline
-- **Ingestion**: Apache Kafka for real-time data streams
-- **Processing**: Spark for batch processing
-- **Storage**: MongoDB for flexible document storage
-- **Versioning**: DVC for data version control
+**Constraint Generation:** Sentiment extremes → min/max weight adjustments  
+**Multi-Factor Score:** 40% Sentiment + 35% Fundamental + 25% Technical  
+**8 Optimization Models:** LASSO, DRO, HRP, Bayesian, CVaR, GMV, CAPM, RL
 
-## 📚 Additional Resources
+## Next Steps (2-3 weeks each)
 
-### Python Libraries Documentation
-- [Scikit-learn](https://scikit-learn.org/stable/)
-- [TensorFlow/Keras](https://www.tensorflow.org/)
-- [NLTK](https://www.nltk.org/)
-- [Pandas](https://pandas.pydata.org/)
+1. **Sentiment Index Enhancement** - Add Twitter, time-decay, PostgreSQL
+2. **Portfolio Integration** - Constraint generator, backtesting
+3. **Risk System** - VaR, CVaR, stress testing, alerts
+4. **API & Dashboard** - FastAPI backend, React frontend (<200ms response)
 
-### NLP Concepts
-- [TF-IDF Explained](https://en.wikipedia.org/wiki/Tf%E2%80%93idf)
-- [Word Embeddings](https://en.wikipedia.org/wiki/Word_embedding)
-- [Sentiment Analysis](https://en.wikipedia.org/wiki/Sentiment_analysis)
-- [VADER Sentiment](https://github.com/cjhutto/vaderSentiment)
+## Success KPIs
 
-### Model Improvement Ideas
-1. Use BERT/RoBERTa pre-trained transformers
-2. Fine-tune on GLP-1 specific data
-3. Implement aspect-based sentiment analysis
-4. Add sarcasm and irony detection
-5. Multi-language support
+- **Technical:** API <200ms response, <30min lag, Model F1>0.85, 99.5% uptime
+- **Business:** Index correlation >0.60 with returns, Sharpe >1.5, Alert precision >90%
 
-## 🤝 Contributing
+## Deployment Options
 
-To extend this project:
-1. Fork the repository
-2. Create a feature branch
-3. Add improvements/fixes
-4. Submit pull request with documentation
+1. **APScheduler** (Dev): Simple background scheduler
+2. **Cron** (Prod): OS-level scheduling
+3. **Celery+Redis** (Enterprise): Distributed scalability
 
-## 📝 License
+## Tech Stack
 
-This project is provided as-is for educational and research purposes.
-
-## 📧 Contact
-
-For questions or suggestions, please refer to the COMPLETION_SUMMARY.md and QUICK_REFERENCE.md files for more detailed documentation.
+Python 3.8+ • scikit-learn • TensorFlow • NLTK • pandas • numpy • PRAW • newsapi  
+Future: PostgreSQL • TimescaleDB • Redis • FastAPI • React • Docker
 
 ---
 
-**Last Updated**: January 2026  
-**Status**: Production Ready  
-**Maintenance**: Ongoing (Weekly Updates Recommended)
+**Status:** Production Ready (Phase 1) + Phase 2 Integration Underway  
+**Maintenance:** Weekly updates, monthly performance reviews  
+**Last Updated:** April 2026

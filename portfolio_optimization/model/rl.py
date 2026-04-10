@@ -423,7 +423,7 @@ class PortfolioRLAgent:
         
         # Entropy bonus (encourage exploration)
         entropy = -(torch.softmax(logits, dim=-1) * log_probs).sum(dim=-1, keepdim=True)
-        entropy_weight = 0.01
+        entropy_weight = 0.05  # Increased from 0.01 for better exploration
         
         actor_loss = -(action_log_probs * advantages + entropy_weight * entropy).mean()
         
@@ -511,9 +511,9 @@ def compute_reward(
 
 def train_rl_agent(
     returns: pd.DataFrame,
-    n_epochs: int = 10,
-    episode_length: int = 20,
-    learning_rate: float = 0.001,
+    n_epochs: int = 50,
+    episode_length: int = 30,  # REDUCED from 60 to allow more episodes per epoch
+    learning_rate: float = 0.003,
     gamma: float = 0.99,
     transaction_cost_rate: float = 0.001,
     risk_aversion: float = 1.0,
@@ -556,8 +556,15 @@ def train_rl_agent(
     
     n_assets = returns.shape[1]
     
+    # FIX 3: Auto-adjust epochs based on dataset size
+    # If dataset is small (< 250 days), increase epochs to compensate
+    if len(returns) < 250:
+        adjusted_epochs = int(n_epochs * 1.5)  # 50 * 1.5 = 75 epochs for small test sets
+    else:
+        adjusted_epochs = n_epochs
+    
     # Initialize state extractor
-    state_extractor = StateExtractor(lookback_vol=20, lookback_macro=60, n_pca=3)
+    state_extractor = StateExtractor(lookback_vol=20, lookback_macro=60, n_pca=5)
     state_extractor.fit(returns)
     state_dim = state_extractor.state_dim
     
@@ -572,18 +579,20 @@ def train_rl_agent(
     
     if verbose:
         print(f"Training RL Agent")
-        print(f"  Assets: {n_assets}")
+        print(f"  Assets: {n_assets}, Dataset size: {len(returns)} days")
         print(f"  State dim: {state_dim}")
-        print(f"  Epochs: {n_epochs}, Episode length: {episode_length}")
+        print(f"  Epochs: {adjusted_epochs}, Episode length: {episode_length}")
+        if adjusted_epochs > n_epochs:
+            print(f"  (Auto-adjusted from {n_epochs} epochs due to small dataset)")
     
     # Training loop
-    for epoch in range(n_epochs):
+    for epoch in range(adjusted_epochs):
         epoch_loss = {'actor': 0, 'critic': 0, 'entropy': 0}
         n_updates = 0
         
         # Generate episodes: random sliding windows through history
-        for episode in range(len(returns) // episode_length):
-            start_idx = np.random.randint(100, len(returns) - episode_length)
+        for episode in range(max(1, len(returns) // episode_length)):
+            start_idx = np.random.randint(60, len(returns) - episode_length)  # Ensure enough history
             episode_returns = returns.iloc[start_idx:start_idx + episode_length]
             
             # Initialize portfolio (equal weight)
@@ -598,16 +607,28 @@ def train_rl_agent(
                 state = state_extractor.get_state(hist_returns)
                 
                 # Choose action (portfolio weights)
-                action = agent.choose_action(state, deterministic=False, temperature=1.0)
+                action = agent.choose_action(state, deterministic=False, temperature=0.8)
                 
-                # Compute reward
+                # Compute reward - FIX: Use consistent scaling
                 period_return = episode_returns.iloc[t + 1].values
                 portfolio_return = action @ period_return
-                portfolio_vol = 0.05  # Estimated vol (simplified)
+                
+                # FIX 1: Use PERIOD volatility (not annualized) to match period_return scale
+                # Calculate volatility over last 20 days (rolling window) for stability
+                lookback = min(20, len(hist_returns) - 1)
+                if lookback > 1:
+                    portfolio_returns_recent = (hist_returns.iloc[-lookback:] * action).sum(axis=1)
+                    portfolio_vol = portfolio_returns_recent.std()
+                else:
+                    portfolio_vol = 0.01  # Small default if insufficient data
+                
+                # FIX 2: Annualize returns for comparison with training
+                portfolio_return_annualized = portfolio_return * 252
+                portfolio_vol_annualized = portfolio_vol * np.sqrt(252)
                 
                 reward = compute_reward(
-                    portfolio_return=portfolio_return,
-                    portfolio_vol=portfolio_vol,
+                    portfolio_return=portfolio_return_annualized,  # Now annualized
+                    portfolio_vol=portfolio_vol_annualized,  # Now annualized
                     prev_weights=weights,
                     curr_weights=action,
                     transaction_cost_rate=transaction_cost_rate,
@@ -633,10 +654,10 @@ def train_rl_agent(
                     epoch_loss[key] += metrics[key]
                 n_updates += 1
         
-        if verbose and (epoch + 1) % max(1, n_epochs // 5) == 0:
+        if verbose and (epoch + 1) % max(1, adjusted_epochs // 5) == 0:
             avg_actor = epoch_loss['actor'] / max(n_updates, 1)
             avg_critic = epoch_loss['critic'] / max(n_updates, 1)
-            print(f"  Epoch {epoch + 1}/{n_epochs}: actor_loss={avg_actor:.4f}, critic_loss={avg_critic:.4f}")
+            print(f"  Epoch {epoch + 1}/{adjusted_epochs}: actor_loss={avg_actor:.4f}, critic_loss={avg_critic:.4f}")
         
         agent.clear_buffer()
     
@@ -647,7 +668,7 @@ def get_rl_weights(
     returns: pd.DataFrame,
     agent: Optional[PortfolioRLAgent] = None,
     state_extractor: Optional[StateExtractor] = None,
-    n_epochs: int = 10,
+    n_epochs: int = 50,
     max_weight: float = 0.15,
     long_only: bool = True
 ) -> pd.Series:
@@ -665,7 +686,7 @@ def get_rl_weights(
     state_extractor : StateExtractor, optional
         Pre-fitted state extractor (if None, creates new one)
     n_epochs : int
-        Training epochs if agent=None (default 10)
+        Training epochs if agent=None (default 50 - increased for better training)
     max_weight : float
         Maximum single-asset weight (default 0.15)
     long_only : bool
@@ -677,12 +698,12 @@ def get_rl_weights(
         Portfolio weights
     """
     if agent is None or state_extractor is None:
-        print("Training new RL agent (this may take 30-60 seconds)...")
+        print("Training RL agent with corrected reward scaling (this may take 45-90 seconds)...")
         agent, state_extractor = train_rl_agent(
             returns,
             n_epochs=n_epochs,
-            episode_length=20,
-            learning_rate=0.001,
+            episode_length=30,  # Updated from 60 for more episodes with limited data
+            learning_rate=0.003,
             gamma=0.99,
             transaction_cost_rate=0.001,
             risk_aversion=1.0,

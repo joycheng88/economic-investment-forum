@@ -232,7 +232,7 @@ def run_rolling_backtest(
                 window_returns,
                 max_weight=max_weight,
                 lasso_penalty=lasso_params.get('lasso_penalty', 0.01),
-                num_assets_target=lasso_params.get('num_assets_target', 5)  # REDUCED from 10
+                num_assets_target=lasso_params.get('num_assets_target', 8)  # Increased to reduce concentration risk
             )
         except:
             w_lasso = None
@@ -241,7 +241,7 @@ def run_rolling_backtest(
         w_rl = None
         if len(window_returns) >= 100:  # RL needs sufficient data
             try:
-                n_epochs = tuned_params.get('RL', {}).get('n_epochs', 3)
+                n_epochs = tuned_params.get('RL', {}).get('n_epochs', 10)  # Increased from 3 for better training
                 w_rl = get_rl_weights(window_returns, agent=None, state_extractor=None, n_epochs=n_epochs, max_weight=max_weight, long_only=True)
             except ImportError:
                 pass  # PyTorch not available
@@ -254,7 +254,7 @@ def run_rolling_backtest(
             w_dro = get_dro_weights(
                 window_returns,
                 method='mean_variance',
-                epsilon=dro_params.get('epsilon', 1.0),  # INCREASED from 0.5
+                epsilon=dro_params.get('epsilon', 1.5),  # Increased to 1.5 for more robustness
                 risk_aversion=dro_params.get('risk_aversion', 1.0),
                 max_weight=max_weight,
                 long_only=True

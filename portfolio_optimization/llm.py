@@ -45,6 +45,7 @@ from typing import Dict, List, Tuple, Optional
 from datetime import datetime, timedelta
 from scipy import stats
 import warnings
+import os
 warnings.filterwarnings('ignore')
 
 # Try to import FinBERT and transformers (optional dependencies)
@@ -67,6 +68,346 @@ try:
 except ImportError:
     print("scikit-learn not available. Install with: pip install scikit-learn")
     TfidfVectorizer = None
+
+# Try to import external LLM APIs (optional)
+OPENAI_AVAILABLE = False
+ANTHROPIC_AVAILABLE = False
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    pass
+
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    pass
+
+
+# ==================== DATA STRUCTURES FOR QUESTION CONTEXT & RESPONSES ====================
+
+class AnalysisContext:
+    """
+    Structured representation of user question context
+    
+    Passed from chatbot.py to llm.py for deep analysis
+    Ensures consistent, semantic-rich data flow
+    """
+    
+    def __init__(self,
+                 question_type: str,
+                 intent: str,
+                 entities: List[str] = None,
+                 timeframe: str = '1m',
+                 portfolio_weights: Optional[pd.Series] = None,
+                 returns_data: Optional[pd.DataFrame] = None,
+                 confidence: float = 0.7,
+                 raw_question: str = ''):
+        """
+        Initialize analysis context
+        
+        Parameters:
+        -----------
+        question_type : str
+            'stock', 'portfolio', 'sector', 'market', 'macro', 'comparison', 'education'
+        intent : str
+            'analysis', 'comparison', 'forecast', 'risk', 'explanation', 'opportunity'
+        entities : list, optional
+            Extracted tickers, sector names, indices
+        timeframe : str
+            'today', '1w', '1m', '3m', '6m', '1y', 'all'
+        portfolio_weights : pd.Series, optional
+            Current portfolio allocation
+        returns_data : pd.DataFrame, optional
+            Historical returns for analysis
+        confidence : float
+            Classification confidence (0-1)
+        raw_question : str
+            Original user question
+        """
+        self.question_type = question_type
+        self.intent = intent
+        self.entities = entities or []
+        self.timeframe = timeframe
+        self.portfolio_weights = portfolio_weights
+        self.returns_data = returns_data
+        self.confidence = confidence
+        self.raw_question = raw_question
+        self.timestamp = datetime.now()
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for logging/debugging"""
+        return {
+            'question_type': self.question_type,
+            'intent': self.intent,
+            'entities': self.entities,
+            'timeframe': self.timeframe,
+            'confidence': self.confidence,
+            'timestamp': self.timestamp.isoformat(),
+            'raw_question': self.raw_question
+        }
+
+
+class AnalysisResponse:
+    """
+    Structured response from LLM analysis
+    
+    Contains narrative, metrics, confidence levels, and sources
+    Standardized output format for all analyzers
+    """
+    
+    def __init__(self,
+                 narrative: str,
+                 key_metrics: Dict[str, any] = None,
+                 interpretation: str = '',
+                 confidence_level: float = 0.7,
+                 data_sources: List[str] = None,
+                 limitations: List[str] = None,
+                 recommendations: List[str] = None,
+                 visual_data: Dict = None):
+        """
+        Initialize analysis response
+        
+        Parameters:
+        -----------
+        narrative : str
+            Main markdown narrative/explanation
+        key_metrics : dict
+            Factual data points (prices, returns, volatility, etc.)
+        interpretation : str
+            What the metrics mean (analysis/opinion)
+        confidence_level : float
+            Confidence in analysis (0-1)
+        data_sources : list
+            List of data sources used (yfinance, FinBERT, etc.)
+        limitations : list
+            Known limitations or caveats
+        recommendations : list
+            Actionable recommendations
+        visual_data : dict
+            Data formatted for visualization
+        """
+        self.narrative = narrative
+        self.key_metrics = key_metrics or {}
+        self.interpretation = interpretation
+        self.confidence_level = confidence_level
+        self.data_sources = data_sources or ['yfinance', 'fallback_analysis']
+        self.limitations = limitations or []
+        self.recommendations = recommendations or []
+        self.visual_data = visual_data or {}
+        self.timestamp = datetime.now()
+    
+    def to_markdown(self) -> str:
+        """Convert to markdown for display"""
+        output = f"{self.narrative}\n\n"
+        
+        if self.interpretation:
+            output += f"### 📊 Interpretation\n\n{self.interpretation}\n\n"
+        
+        if self.key_metrics:
+            output += "### 📈 Key Metrics\n\n"
+            for key, value in self.key_metrics.items():
+                output += f"• **{key}**: {value}\n"
+            output += "\n"
+        
+        if self.recommendations:
+            output += "### 💡 Recommendations\n\n"
+            for i, rec in enumerate(self.recommendations, 1):
+                output += f"{i}. {rec}\n"
+            output += "\n"
+        
+        output += f"**Confidence**: {self.confidence_level:.0%} | **Data Sources**: {', '.join(self.data_sources)}\n"
+        
+        if self.limitations:
+            output += f"\n**Limitations**: {'; '.join(self.limitations)}\n"
+        
+        return output
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary"""
+        return {
+            'narrative': self.narrative,
+            'key_metrics': self.key_metrics,
+            'interpretation': self.interpretation,
+            'confidence_level': self.confidence_level,
+            'data_sources': self.data_sources,
+            'limitations': self.limitations,
+            'recommendations': self.recommendations,
+            'timestamp': self.timestamp.isoformat()
+        }
+
+
+# ==================== EXTERNAL LLM BACKEND ====================
+
+class LLMBackend:
+    """
+    Unified interface for external LLM APIs
+    
+    Supports:
+    - OpenAI GPT-4/GPT-3.5-turbo
+    - Anthropic Claude
+    - Open-source models (future)
+    
+    Generates narratives, explanations, and recommendations
+    """
+    
+    def __init__(self, backend: str = 'fallback', api_key: str = None):
+        """
+        Initialize LLM backend
+        
+        Parameters:
+        -----------
+        backend : str
+            'openai', 'anthropic', 'fallback' (pattern matching)
+        api_key : str
+            API key for external service
+        """
+        self.backend = backend
+        self.api_key = api_key
+        
+        if backend == 'openai' and OPENAI_AVAILABLE:
+            openai.api_key = api_key or os.getenv('OPENAI_API_KEY')
+            self.client = openai
+        elif backend == 'anthropic' and ANTHROPIC_AVAILABLE:
+            self.client = anthropic.Anthropic(api_key=api_key or os.getenv('ANTHROPIC_API_KEY'))
+        else:
+            self.backend = 'fallback'
+    
+    def generate_stock_narrative(self, 
+                                 ticker: str,
+                                 score_card: Dict,
+                                 sentiment_signals: Dict,
+                                 context: AnalysisContext) -> str:
+        """
+        Generate natural language narrative for stock analysis
+        
+        Parameters:
+        -----------
+        ticker : str
+            Stock ticker
+        score_card : dict
+            Output from generate_stock_score()
+        sentiment_signals : dict
+            Sentiment analysis results
+        context : AnalysisContext
+            Analysis context
+            
+        Returns:
+        --------
+        narrative : str
+            Natural language explanation
+        """
+        if self.backend == 'openai':
+            return self._generate_with_openai(
+                f"""Generate a concise investment analysis narrative for {ticker}.
+                
+Stock Score Card:
+{score_card}
+
+Sentiment Signals:
+{sentiment_signals}
+
+Keep it to 3-4 sentences. Be direct and actionable. Include confidence caveats."""
+            )
+        elif self.backend == 'anthropic':
+            return self._generate_with_claude(
+                f"""Generate a concise investment analysis narrative for {ticker}.
+                
+Stock Score Card:
+{score_card}
+
+Sentiment Signals:
+{sentiment_signals}
+
+Keep it to 3-4 sentences. Be direct and actionable. Include confidence caveats."""
+            )
+        else:
+            return self._fallback_narrative(ticker, score_card, sentiment_signals)
+    
+    def generate_portfolio_recommendation(self,
+                                         weights: pd.Series,
+                                         analysis: Dict) -> str:
+        """
+        Generate investment recommendation for portfolio
+        """
+        if self.backend == 'openai':
+            return self._generate_with_openai(
+                f"""Generate actionable portfolio recommendation based on:
+                
+Weights: {weights.to_dict()}
+Analysis: {analysis}
+
+Format: 2-3 bullet points with specific actions."""
+            )
+        elif self.backend == 'anthropic':
+            return self._generate_with_claude(
+                f"""Generate actionable portfolio recommendation based on:
+                
+Weights: {weights.to_dict()}
+Analysis: {analysis}
+
+Format: 2-3 bullet points with specific actions."""
+            )
+        else:
+            return self._fallback_recommendation(weights, analysis)
+    
+    def _generate_with_openai(self, prompt: str, max_tokens: int = 500) -> str:
+        """Call OpenAI API"""
+        try:
+            response = self.client.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=0.7
+            )
+            return response['choices'][0]['message']['content']
+        except Exception as e:
+            print(f"OpenAI error: {e}")
+            return ""
+    
+    def _generate_with_claude(self, prompt: str, max_tokens: int = 500) -> str:
+        """Call Claude API"""
+        try:
+            message = self.client.messages.create(
+                model="claude-3-sonnet-20240229",
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return message.content[0].text
+        except Exception as e:
+            print(f"Claude error: {e}")
+            return ""
+    
+    def _fallback_narrative(self, ticker: str, score_card: Dict, sentiment_signals: Dict) -> str:
+        """Fallback narrative generation using heuristics"""
+        overall_score = score_card.get('overall_score', 50)
+        rating = score_card.get('rating', 'HOLD')
+        
+        if overall_score >= 75:
+            return f"{ticker} shows strong fundamentals with solid momentum and valuation metrics. Technical indicators support upside. Rating: {rating}."
+        elif overall_score >= 60:
+            return f"{ticker} demonstrates adequate fundamentals with balanced risk/reward. Suitable for moderate growth portfolios. Rating: {rating}."
+        elif overall_score >= 40:
+            return f"{ticker} is fairly valued with mixed signals. Consider position sizing and diversification context. Rating: {rating}."
+        else:
+            return f"{ticker} shows concerning fundamentals or momentum. Recommend caution and thorough due diligence. Rating: {rating}."
+    
+    def _fallback_recommendation(self, weights: pd.Series, analysis: Dict) -> str:
+        """Fallback recommendation generation"""
+        top_3_weight = weights.nlargest(3).sum()
+        
+        recs = []
+        if top_3_weight > 0.5:
+            recs.append(f"• Rebalance top 3 positions (currently {top_3_weight*100:.0f}% of portfolio)")
+        
+        num_holdings = (weights > 0.01).sum()
+        if num_holdings < 5:
+            recs.append(f"• Add 2-3 low-correlation names for diversification (currently only {num_holdings} holdings)")
+        
+        recs.append("• Set quarterly rebalancing triggers at ±15% weight drift")
+        
+        return "\n".join(recs)
 
 
 # ==================== MULTI-MODEL FINANCIAL LLM ENSEMBLE ====================
@@ -1993,4 +2334,409 @@ def process_chatbot_question(question: str, context: dict = None) -> dict:
             'error': str(e),
             'question_type': 'error'
         }
+
+
+# ==================== ENHANCED ANALYZERS (C) ====================
+
+def deep_stock_comparison(context: AnalysisContext) -> AnalysisResponse:
+    """
+    Deep analysis comparing multiple stocks or stock performance over time
+    
+    Parameters:
+    -----------
+    context : AnalysisContext
+        Contains tickers, timeframe, and intent
+        
+    Returns:
+    --------
+    response : AnalysisResponse
+        Comprehensive comparison with scores and rationale
+    """
+    try:
+        tickers = context.entities
+        if not tickers or len(tickers) < 1:
+            return AnalysisResponse(
+                narrative="No tickers provided for comparison.",
+                confidence_level=0.0,
+                limitations=["No tickers specified in request"]
+            )
+        
+        recommender = RobustStockRecommender()
+        ranked = recommender.get_stock_opportunities(tickers, max_recommendations=len(tickers))
+        
+        # Build comparison table
+        comparison_df = recommender.compare_stocks(tickers)
+        
+        # Generate narrative
+        narrative = "## 📊 Stock Performance Comparison\n\n"
+        
+        if context.timeframe == 'today':
+            narrative += "### 🏆 Top Performers (Today)\n\n"
+        else:
+            narrative += f"### 🏆 Top Performers ({context.timeframe})\n\n"
+        
+        top_n = min(3, len(ranked))
+        for i, item in enumerate(ranked[:top_n], 1):
+            ticker = item['ticker']
+            score = item['overall_score']
+            rating = item['rating']
+            rationale = item.get('recommendation_rationale', '')
+            emoji = ['🥇', '🥈', '🥉'][i-1]
+            narrative += f"{emoji} **{ticker}** - Score: {score:.0f}/100 ({rating})\n"
+            narrative += f"   {rationale}\n\n"
+        
+        # Key metrics
+        key_metrics = {}
+        for ticker in tickers[:5]:
+            try:
+                data = yf.Ticker(ticker).info
+                key_metrics[f"{ticker}_PE"] = round(data.get('trailingPE', 0), 2)
+                key_metrics[f"{ticker}_Market_Cap"] = data.get('marketCap', 0)
+            except:
+                pass
+        
+        # Recommendations
+        recommendations = [
+            f"Top pick: {ranked[0]['ticker']} with {ranked[0]['overall_score']:.0f}/100 score" if ranked else "Insufficient data",
+            f"Consider portfolio context and risk tolerance before allocation",
+            f"Monitor momentum shifts and earnings announcements"
+        ]
+        
+        return AnalysisResponse(
+            narrative=narrative,
+            key_metrics=key_metrics,
+            interpretation=f"Analysis of {len(tickers)} stocks across momentum, value, quality, and growth factors.",
+            confidence_level=context.confidence,
+            data_sources=['yfinance', 'FinancialLLMEnsemble'],
+            recommendations=recommendations,
+            limitations=["Past performance not indicative of future results", "Real-time data may have delays"]
+        )
+    
+    except Exception as e:
+        return AnalysisResponse(
+            narrative=f"Error in stock comparison: {str(e)[:100]}",
+            confidence_level=0.0,
+            limitations=[str(e)]
+        )
+
+
+def sector_rotation_analysis(context: AnalysisContext) -> AnalysisResponse:
+    """
+    Analyze sector rotation patterns and relative performance
+    
+    Parameters:
+    -----------
+    context : AnalysisContext
+        Contains sector name and market regime
+        
+    Returns:
+    --------
+    response : AnalysisResponse
+        Sector analysis with positioning advice
+    """
+    try:
+        sector_name = context.entities[0] if context.entities else 'Technology'
+        
+        # Sector ETF mapping
+        sector_map = {
+            'technology': 'XLK',
+            'tech': 'XLK',
+            'finance': 'XLF',
+            'financial': 'XLF',
+            'healthcare': 'XLV',
+            'health': 'XLV',
+            'energy': 'XLE',
+            'consumer': 'XLY',
+            'industrial': 'XLI',
+            'materials': 'XLB',
+            'utilities': 'XLU',
+            'staples': 'XLP',
+            'real estate': 'XLRE'
+        }
+        
+        etf = sector_map.get(sector_name.lower(), 'XLK')
+        
+        # Fetch sector data
+        sector_data = yf.download(etf, period='1y', progress=False, auto_adjust=False)
+        spy_data = yf.download('SPY', period='1y', progress=False, auto_adjust=False)
+        
+        if isinstance(sector_data.columns, pd.MultiIndex):
+            sector_close = sector_data['Adj Close', etf]
+            spy_close = spy_data['Adj Close', 'SPY']
+        else:
+            sector_close = sector_data['Adj Close']
+            spy_close = spy_data['Adj Close']
+        
+        # Calculate returns
+        sector_return = (sector_close.iloc[-1] / sector_close.iloc[0] - 1)
+        spy_return = (spy_close.iloc[-1] / spy_close.iloc[0] - 1)
+        relative_performance = sector_return - spy_return
+        
+        sector_vol = sector_close.pct_change().std() * np.sqrt(252)
+        
+        narrative = f"## 🏭 Sector Analysis: {sector_name.title()}\n\n"
+        narrative += f"**{etf}** - {sector_name.title()} Sector ETF\n\n"
+        
+        narrative += f"### 📈 Performance\n\n"
+        narrative += f"• **{etf} YTD Return**: {sector_return*100:+.2f}%\n"
+        narrative += f"• **S&P 500 YTD**: {spy_return*100:+.2f}%\n"
+        narrative += f"• **Relative Performance**: {relative_performance*100:+.2f}pp\n"
+        narrative += f"• **Volatility (Annual)**: {sector_vol*100:.2f}%\n\n"
+        
+        # Rotation assessment
+        if relative_performance > 0.05:
+            narrative += f"### 📊 Sector Rotation Signal\n\n**Outperforming broad market** - Sector relative strength may continue in growth-favorable environments.\n\n"
+        elif relative_performance < -0.05:
+            narrative += f"### 📊 Sector Rotation Signal\n\n**Underperforming broad market** - Consider whether defensive repositioning is warranted.\n\n"
+        else:
+            narrative += f"### 📊 Sector Rotation Signal\n\n**In-line with market** - Sector movement closely tracking broad market indices.\n\n"
+        
+        key_metrics = {
+            f"{etf}_Price": f"${sector_close.iloc[-1]:.2f}",
+            f"{sector_name}_Return_YTD": f"{sector_return*100:.2f}%",
+            f"Relative_to_SPY": f"{relative_performance*100:.2f}pp",
+            f"Volatility": f"{sector_vol*100:.2f}%"
+        }
+        
+        recommendations = [
+            f"Monitor sector leadership vs broad market",
+            f"Consider {sector_name} exposure based on market regime",
+            f"Evaluate sector-specific risks (regulation, cyclicality)"
+        ]
+        
+        return AnalysisResponse(
+            narrative=narrative,
+            key_metrics=key_metrics,
+            interpretation="Analysis of sector rotation and relative strength.",
+            confidence_level=context.confidence,
+            data_sources=['yfinance', 'sector ETF data'],
+            recommendations=recommendations
+        )
+    
+    except Exception as e:
+        return AnalysisResponse(
+            narrative=f"Error in sector analysis: {str(e)[:100]}",
+            confidence_level=0.0,
+            limitations=[str(e)]
+        )
+
+
+def portfolio_stress_test(context: AnalysisContext) -> AnalysisResponse:
+    """
+    Stress test portfolio under various market scenarios
+    
+    Parameters:
+    -----------
+    context : AnalysisContext
+        Contains portfolio weights and market scenarios
+        
+    Returns:
+    --------
+    response : AnalysisResponse
+        Stress test results with loss scenarios
+    """
+    try:
+        if context.portfolio_weights is None or context.returns_data is None:
+            return AnalysisResponse(
+                narrative="Portfolio stress test requires portfolio weights and historical returns data.",
+                confidence_level=0.0,
+                limitations=["Missing portfolio data"]
+            )
+        
+        weights = context.portfolio_weights
+        returns_data = context.returns_data
+        
+        # Get portfolio returns
+        portfolio_stocks = weights.index.tolist()
+        selected_returns = returns_data[portfolio_stocks].dropna()
+        portfolio_returns = (selected_returns * weights.values).sum(axis=1)
+        
+        # Calculate current metrics
+        daily_vol = portfolio_returns.std()
+        annual_vol = daily_vol * np.sqrt(252)
+        annual_return = portfolio_returns.mean() * 252
+        
+        # Historical drawdown
+        cumul = (1 + portfolio_returns).cumprod()
+        max_dd = ((cumul - cumul.expanding().max()) / cumul.expanding().max()).min()
+        
+        # Stress scenarios (1-sigma, 2-sigma, 3-sigma moves)
+        scenarios = {
+            '1-Sigma Move (68% probability)': -annual_vol / np.sqrt(252),
+            '2-Sigma Move (95% probability)': -2 * annual_vol / np.sqrt(252),
+            '3-Sigma Move (99.7% probability)': -3 * annual_vol / np.sqrt(252),
+            'Crash Scenario (2008-style)': -0.40,
+            'Severe Correction (20%)': -0.20
+        }
+        
+        narrative = "## 💪 Portfolio Stress Test\n\n"
+        narrative += "### Hypothetical Loss Scenarios\n\n"
+        
+        for scenario_name, loss_pct in scenarios.items():
+            potential_loss = loss_pct * 100
+            narrative += f"• **{scenario_name}**: {potential_loss:.2f}% portfolio loss\n"
+        
+        narrative += f"\n### Current Risk Profile\n\n"
+        narrative += f"• **Annual Volatility**: {annual_vol*100:.2f}%\n"
+        narrative += f"• **Expected Annual Return**: {annual_return*100:.2f}%\n"
+        narrative += f"• **Historical Max Drawdown**: {max_dd*100:.2f}%\n"
+        narrative += f"• **Risk/Return Ratio**: {annual_vol/annual_return if annual_return != 0 else 'N/A':.2f}\n\n"
+        
+        key_metrics = {
+            'Annual_Volatility': f"{annual_vol*100:.2f}%",
+            'Expected_Return': f"{annual_return*100:.2f}%",
+            'Max_Drawdown': f"{max_dd*100:.2f}%",
+            'Sharpe_Ratio': f"{(annual_return - 0.03) / annual_vol if annual_vol > 0 else 0:.3f}",
+            '1_Sigma_Loss': f"{scenarios['1-Sigma Move (68% probability)']*100:.2f}%",
+            '2_Sigma_Loss': f"{scenarios['2-Sigma Move (95% probability)']*100:.2f}%"
+        }
+        
+        recommendations = [
+            "Review position sizing if stress scenarios exceed comfort level",
+            "Consider hedging strategies for tail risk protection",
+            "Maintain adequate liquidity for drawdown scenarios",
+            "Rebalancing discipline helps manage portfolio through stress"
+        ]
+        
+        return AnalysisResponse(
+            narrative=narrative,
+            key_metrics=key_metrics,
+            interpretation="Analysis of portfolio behavior under hypothetical market stress scenarios.",
+            confidence_level=0.85,
+            data_sources=['historical returns', 'volatility analysis'],
+            recommendations=recommendations,
+            limitations=["Historical volatility may not predict future scenarios", "Correlations can break down in crises"]
+        )
+    
+    except Exception as e:
+        return AnalysisResponse(
+            narrative=f"Error in stress test: {str(e)[:100]}",
+            confidence_level=0.0,
+            limitations=[str(e)]
+        )
+
+
+def extract_portfolio_risks(context: AnalysisContext) -> AnalysisResponse:
+    """
+    Identify and extract key risks in portfolio
+    
+    Parameters:
+    -----------
+    context : AnalysisContext
+        Contains portfolio weights and returns data
+        
+    Returns:
+    --------
+    response : AnalysisResponse
+        Risk analysis with concentration and correlation risks
+    """
+    try:
+        if context.portfolio_weights is None or context.returns_data is None:
+            return AnalysisResponse(
+                narrative="Portfolio risk analysis requires portfolio data.",
+                confidence_level=0.0,
+                limitations=["Missing portfolio data"]
+            )
+        
+        weights = context.portfolio_weights
+        returns_data = context.returns_data
+        
+        # Risk 1: Concentration
+        hhi = (weights ** 2).sum()
+        top_3_weight = weights.nlargest(3).sum()
+        
+        # Risk 2: Correlation
+        selected_returns = returns_data[weights.index]
+        corr_matrix = selected_returns.corr()
+        mask = ~np.eye(len(corr_matrix), dtype=bool)
+        avg_corr = corr_matrix.values[mask].mean()
+        
+        # Risk 3: Volatility
+        portfolio_vol = np.sqrt(weights.values @ selected_returns.cov().values @ weights.values)
+        
+        # Risk 4: Sector concentration
+        sector_weights = {}
+        for ticker in weights.index:
+            try:
+                sector = yf.Ticker(ticker).info.get('sector', 'Unknown')
+                sector_weights[sector] = sector_weights.get(sector, 0) + weights[ticker]
+            except:
+                pass
+        
+        max_sector_weight = max(sector_weights.values()) if sector_weights else 0
+        
+        narrative = "## ⚠️ Portfolio Risk Analysis\n\n"
+        
+        # Risk 1
+        narrative += "### 🔴 Concentration Risk\n\n"
+        if hhi > 0.15:
+            narrative += f"**HIGH** - HHI of {hhi:.3f} indicates significant concentration\n"
+            narrative += f"• Top 3 positions: {top_3_weight*100:.1f}% of portfolio\n"
+            narrative += f"• Risk: Single-stock or top-holdings outperformance dominates returns\n"
+        elif hhi > 0.08:
+            narrative += f"**MODERATE** - HHI of {hhi:.3f} shows reasonable diversification\n"
+            narrative += f"• Top 3 positions: {top_3_weight*100:.1f}% of portfolio\n"
+        else:
+            narrative += f"**LOW** - HHI of {hhi:.3f} indicates well-diversified holdings\n\n"
+        
+        # Risk 2
+        narrative += "### 🟠 Correlation Risk\n\n"
+        if avg_corr > 0.65:
+            narrative += f"**HIGH** - Average correlation of {avg_corr:.2f} \n"
+            narrative += "• Holdings move together in market stress\n"
+            narrative += "• Limited diversification benefit during downturns\n"
+        elif avg_corr > 0.4:
+            narrative += f"**MODERATE** - Average correlation of {avg_corr:.2f}\n"
+            narrative += "• Some independent movement between holdings\n"
+        else:
+            narrative += f"**LOW** - Average correlation of {avg_corr:.2f}\n"
+            narrative += "• Good diversification across uncorrelated factors\n\n"
+        
+        # Risk 3
+        narrative += "### 🟡 Volatility Risk\n\n"
+        narrative += f"• **Portfolio Volatility**: {portfolio_vol*100:.2f}%\n"
+        if portfolio_vol > 0.25:
+            narrative += "• HIGH - Significant price swings expected\n"
+        elif portfolio_vol > 0.15:
+            narrative += "• MODERATE - Typical equity portfolio volatility\n"
+        else:
+            narrative += "• LOW - Conservative risk profile\n\n"
+        
+        # Risk 4
+        if sector_weights and max_sector_weight > 0.3:
+            narrative += "### 📊 Sector Concentration Risk\n\n"
+            top_sector = max(sector_weights, key=sector_weights.get)
+            narrative += f"**ELEVATED** - {top_sector} dominates at {max_sector_weight*100:.1f}%\n"
+            narrative += f"• Monitor sector-specific risks (regulation, cyclicality)\n\n"
+        
+        key_metrics = {
+            'HHI_Concentration': f"{hhi:.3f}",
+            'Top_3_Weight': f"{top_3_weight*100:.1f}%",
+            'Avg_Correlation': f"{avg_corr:.2f}",
+            'Portfolio_Volatility': f"{portfolio_vol*100:.2f}%",
+            'Max_Sector_Weight': f"{max_sector_weight*100:.1f}%" if sector_weights else "N/A"
+        }
+        
+        recommendations = [
+            "Consider rebalancing if top 3 positions exceed 50%",
+            "Add uncorrelated assets if average correlation > 0.65",
+            "Implement stop-loss discipline for downside protection",
+            "Quarterly rebalancing helps manage concentration drift"
+        ]
+        
+        return AnalysisResponse(
+            narrative=narrative,
+            key_metrics=key_metrics,
+            interpretation="Comprehensive portfolio risk assessment across multiple dimensions.",
+            confidence_level=0.9,
+            data_sources=['portfolio data', 'historical correlations'],
+            recommendations=recommendations
+        )
+    
+    except Exception as e:
+        return AnalysisResponse(
+            narrative=f"Error in risk analysis: {str(e)[:100]}",
+            confidence_level=0.0,
+            limitations=[str(e)]
+        )
 

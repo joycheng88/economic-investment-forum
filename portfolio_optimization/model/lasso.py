@@ -252,3 +252,109 @@ def get_lasso_weights(returns, max_weight=0.15, lasso_penalty=0.01, risk_aversio
     )
     
     return pd.Series(weights, index=returns.columns)
+
+
+def compute_lasso_cv_scores(returns, n_splits=5, num_assets_target=5, risk_aversion=1.0):
+    """
+    Compute K-fold cross-validation scores for LASSO model.
+    
+    Diagnoses overfitting by comparing train vs test performance.
+    High train_score - test_score indicates overfitting.
+    
+    Parameters:
+    -----------
+    returns : pd.DataFrame
+        Asset returns
+    n_splits : int
+        Number of CV folds
+    num_assets_target : int
+        Target sparsity (number of assets)
+    risk_aversion : float
+        Risk aversion coefficient
+    
+    Returns:
+    --------
+    cv_results : dict
+        CV scores and diagnostics
+    """
+    from model.cross_validation import compute_kfold_cv_scores, diagnose_overfitting
+    
+    cv_results = compute_kfold_cv_scores(
+        returns,
+        get_lasso_weights,
+        model_name="LASSO",
+        n_splits=n_splits,
+        risk_free_rate=0.02,
+        max_weight=0.15,
+        lasso_penalty=0.01,
+        risk_aversion=risk_aversion,
+        num_assets_target=num_assets_target
+    )
+    
+    # Add diagnosis
+    diagnosis = diagnose_overfitting(cv_results)
+    cv_results['diagnosis'] = diagnosis
+    
+    return cv_results
+
+
+def get_lasso_weights_with_cv(
+    returns,
+    max_weight=0.15,
+    target_num_assets=None,
+    risk_aversion=1.0,
+    cv_diagnose=True,
+    n_cv_splits=5
+):
+    """
+    Get LASSO weights with optional cross-validation diagnostics.
+    
+    Parameters:
+    -----------
+    returns : pd.DataFrame
+        Asset returns
+    max_weight : float
+        Max weight per asset
+    target_num_assets : int, optional
+        Target sparsity. If None, uses default (10) or auto-selects based on CV.
+    risk_aversion : float
+        Risk aversion
+    cv_diagnose : bool
+        If True, compute and return CV diagnostics
+    n_cv_splits : int
+        Number of CV folds for diagnosis
+    
+    Returns:
+    --------
+    weights : pd.Series
+        Portfolio weights
+    cv_results : dict, optional
+        If cv_diagnose=True, includes CV scores and overfitting diagnosis
+    """
+    if target_num_assets is None:
+        target_num_assets = min(10, len(returns.columns))
+    
+    # Get weights
+    weights = get_lasso_weights(
+        returns,
+        max_weight=max_weight,
+        lasso_penalty=0.01,
+        risk_aversion=risk_aversion,
+        num_assets_target=target_num_assets
+    )
+    
+    if cv_diagnose:
+        try:
+            cv_results = compute_lasso_cv_scores(
+                returns,
+                n_splits=n_cv_splits,
+                num_assets_target=target_num_assets,
+                risk_aversion=risk_aversion
+            )
+            return weights, cv_results
+        except Exception as e:
+            import warnings
+            warnings.warn(f"CV diagnostics failed: {e}")
+            return weights, None
+    
+    return weights

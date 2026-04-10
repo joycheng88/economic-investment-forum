@@ -493,7 +493,136 @@ def get_dro_weights(
     return pd.Series(weights, index=returns.columns)
 
 
-# ==================== DIAGNOSTICS ====================
+def compute_dro_cv_scores(returns, n_splits=5, epsilon=1.0, risk_aversion=1.0):
+    """
+    Compute K-fold cross-validation scores for DRO model.
+    
+    Diagnoses overfitting by comparing train vs test performance.
+    High train_score - test_score indicates overfitting to training distribution.
+    
+    Parameters:
+    -----------
+    returns : pd.DataFrame
+        Asset returns
+    n_splits : int
+        Number of CV folds
+    epsilon : float
+        Wasserstein radius (ambiguity level)
+    risk_aversion : float
+        Risk aversion coefficient
+    
+    Returns:
+    --------
+    cv_results : dict
+        CV scores and diagnostics
+    """
+    from model.cross_validation import compute_kfold_cv_scores, diagnose_overfitting
+    
+    cv_results = compute_kfold_cv_scores(
+        returns,
+        get_dro_weights,
+        model_name="DRO",
+        n_splits=n_splits,
+        risk_free_rate=0.02,
+        method='mean_variance',
+        epsilon=epsilon,
+        risk_aversion=risk_aversion,
+        alpha=0.05,
+        max_weight=0.15,
+        long_only=True
+    )
+    
+    # Add diagnosis
+    diagnosis = diagnose_overfitting(cv_results)
+    cv_results['diagnosis'] = diagnosis
+    
+    return cv_results
+
+
+def get_dro_weights_with_cv(
+    returns,
+    method: str = 'mean_variance',
+    epsilon: float = None,
+    risk_aversion: float = 1.0,
+    max_weight: float = 0.15,
+    cv_diagnose: bool = True,
+    n_cv_splits: int = 5,
+    auto_adjust_epsilon: bool = False
+):
+    """
+    Get DRO weights with optional cross-validation diagnostics.
+    
+    Can auto-adjust epsilon based on CV overfitting diagnosis.
+    
+    Parameters:
+    -----------
+    returns : pd.DataFrame
+        Asset returns
+    method : str
+        'mean_variance' or 'cvar'
+    epsilon : float, optional
+        Wasserstein radius. If None, uses default (1.0 for mean-variance, 0.3 for cvar)
+    risk_aversion : float
+        Risk aversion
+    max_weight : float
+        Max weight per asset
+    cv_diagnose : bool
+        If True, compute CV diagnostics
+    n_cv_splits : int
+        Number of CV folds
+    auto_adjust_epsilon : bool
+        If True, increase epsilon if overfitting detected
+    
+    Returns:
+    --------
+    weights : pd.Series
+        Portfolio weights
+    cv_results : dict, optional
+        If cv_diagnose=True, includes CV scores and overfitting diagnosis
+    """
+    if epsilon is None:
+        epsilon = 1.0 if method == 'mean_variance' else 0.3
+    
+    # Get weights
+    weights = get_dro_weights(
+        returns,
+        method=method,
+        epsilon=epsilon,
+        risk_aversion=risk_aversion,
+        max_weight=max_weight,
+        long_only=True
+    )
+    
+    if cv_diagnose:
+        try:
+            cv_results = compute_dro_cv_scores(
+                returns,
+                n_splits=n_cv_splits,
+                epsilon=epsilon,
+                risk_aversion=risk_aversion
+            )
+            
+            # Auto-adjust if severe overfitting detected
+            if auto_adjust_epsilon and cv_results['diagnosis']['severity'] in ['severe', 'moderate']:
+                # Increase epsilon for more robustness
+                new_epsilon = epsilon * 1.5
+                weights = get_dro_weights(
+                    returns,
+                    method=method,
+                    epsilon=new_epsilon,
+                    risk_aversion=risk_aversion,
+                    max_weight=max_weight,
+                    long_only=True
+                )
+                cv_results['note'] = f"Epsilon increased from {epsilon:.2f} to {new_epsilon:.2f} due to overfitting"
+            
+            return weights, cv_results
+        except Exception as e:
+            import warnings
+            warnings.warn(f"CV diagnostics failed: {e}")
+            return weights, None
+    
+    return weights
 
 def compute_worst_case_return(
     weights: np.ndarray,

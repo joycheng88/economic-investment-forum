@@ -45,8 +45,8 @@ DEFAULT_PARAM_GRIDS = {
     },
     
     'LASSO': {
-        'num_assets_target': [3, 4, 5, 6, 7],  # REDUCED from [5,8,10,12,15] - emphasizes true sparsity
-        'lasso_penalty': [0.005, 0.01, 0.02, 0.05],  # Unchanged
+        'num_assets_target': [5, 6, 7, 8, 10],  # Increased range to reduce concentration risk, more diversified
+        'lasso_penalty': [0.01, 0.02, 0.05, 0.1],  # Increased penalty for stronger regularization
     },
     
     'RL': {

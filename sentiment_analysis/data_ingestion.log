@@ -1,0 +1,352 @@
+2026-04-09 20:52:16,414 - data_ingestion - INFO - NewsAPI initialized with query: (GLP-1 OR semaglutide OR tirzepatide OR liraglutid...
+2026-04-09 20:52:16,414 - data_ingestion - INFO - NewsAPI fetcher initialized
+2026-04-09 20:52:16,414 - data_ingestion - INFO - Fetching firm-specific data for 10 companies...
+2026-04-09 20:52:16,414 - data_ingestion - INFO - 
+Fetching data for Novo Nordisk...
+2026-04-09 20:52:16,694 - data_ingestion - INFO - ✓ Novo Nordisk: 89 articles saved to firm_data/novo_nordisk.csv
+2026-04-09 20:52:17,195 - data_ingestion - INFO - 
+Fetching data for Eli Lilly...
+2026-04-09 20:52:17,456 - data_ingestion - ERROR - Error fetching data for Eli Lilly: 'NoneType' object has no attribute 'strip'
+2026-04-09 20:52:17,458 - data_ingestion - INFO - 
+Fetching data for Amgen...
+2026-04-09 20:52:17,842 - data_ingestion - ERROR - Error fetching data for Amgen: 'NoneType' object has no attribute 'strip'
+2026-04-09 20:52:17,842 - data_ingestion - INFO - 
+Fetching data for Pfizer...
+2026-04-09 20:52:18,092 - data_ingestion - ERROR - Error fetching data for Pfizer: 'NoneType' object has no attribute 'strip'
+2026-04-09 20:52:18,092 - data_ingestion - INFO - 
+Fetching data for Roche...
+2026-04-09 20:52:18,508 - data_ingestion - ERROR - Error fetching data for Roche: 'NoneType' object has no attribute 'strip'
+2026-04-09 20:52:18,508 - data_ingestion - INFO - 
+Fetching data for AstraZeneca...
+2026-04-09 20:52:18,782 - data_ingestion - ERROR - Error fetching data for AstraZeneca: 'NoneType' object has no attribute 'strip'
+2026-04-09 20:52:18,782 - data_ingestion - INFO - 
+Fetching data for Zealand Pharma...
+2026-04-09 20:52:19,079 - data_ingestion - INFO - ✓ Zealand Pharma: 97 articles saved to firm_data/zealand_pharma.csv
+2026-04-09 20:52:19,584 - data_ingestion - INFO - 
+Fetching data for Structure Therapeutics...
+2026-04-09 20:52:19,707 - data_ingestion - ERROR - Error fetching data for Structure Therapeutics: 'NoneType' object has no attribute 'strip'
+2026-04-09 20:52:19,707 - data_ingestion - INFO - 
+Fetching data for Viking Therapeutics...
+2026-04-09 20:52:19,983 - data_ingestion - ERROR - Error fetching data for Viking Therapeutics: 'NoneType' object has no attribute 'strip'
+2026-04-09 20:52:19,983 - data_ingestion - INFO - 
+Fetching data for Boehringer Ingelheim...
+2026-04-09 20:52:20,268 - data_ingestion - ERROR - Error fetching data for Boehringer Ingelheim: 'NoneType' object has no attribute 'strip'
+2026-04-09 20:52:20,268 - data_ingestion - INFO - 
+============================================================
+2026-04-09 20:52:20,268 - data_ingestion - INFO - Firm data collection complete!
+2026-04-09 20:52:20,268 - data_ingestion - INFO - ============================================================
+2026-04-09 20:52:20,268 - data_ingestion - INFO - 
+Summary:
+2026-04-09 20:52:20,268 - data_ingestion - INFO - Total articles across all firms: 186
+2026-04-09 20:52:20,268 - data_ingestion - INFO -   Novo Nordisk.......................   89 articles
+2026-04-09 20:52:20,268 - data_ingestion - INFO -   Zealand Pharma.....................   97 articles
+2026-04-09 20:53:09,021 - data_ingestion - INFO - NewsAPI initialized with query: (GLP-1 OR semaglutide OR tirzepatide OR liraglutid...
+2026-04-09 20:53:09,022 - data_ingestion - INFO - NewsAPI fetcher initialized
+2026-04-09 20:53:09,022 - data_ingestion - INFO - Fetching firm-specific data for 10 companies...
+2026-04-09 20:53:09,022 - data_ingestion - INFO - 
+Fetching data for Novo Nordisk...
+2026-04-09 20:53:09,202 - data_ingestion - INFO - ✓ Novo Nordisk: 89 articles saved to firm_data/novo_nordisk.csv
+2026-04-09 20:53:09,705 - data_ingestion - INFO - 
+Fetching data for Eli Lilly...
+2026-04-09 20:53:09,815 - data_ingestion - INFO - ✓ Eli Lilly: 93 articles saved to firm_data/eli_lilly.csv
+2026-04-09 20:53:10,320 - data_ingestion - INFO - 
+Fetching data for Amgen...
+2026-04-09 20:53:10,460 - data_ingestion - INFO - ✓ Amgen: 87 articles saved to firm_data/amgen.csv
+2026-04-09 20:53:10,965 - data_ingestion - INFO - 
+Fetching data for Pfizer...
+2026-04-09 20:53:11,088 - data_ingestion - INFO - ✓ Pfizer: 100 articles saved to firm_data/pfizer.csv
+2026-04-09 20:53:11,593 - data_ingestion - INFO - 
+Fetching data for Roche...
+2026-04-09 20:53:11,720 - data_ingestion - INFO - ✓ Roche: 100 articles saved to firm_data/roche.csv
+2026-04-09 20:53:12,225 - data_ingestion - INFO - 
+Fetching data for AstraZeneca...
+2026-04-09 20:53:12,355 - data_ingestion - INFO - ✓ AstraZeneca: 91 articles saved to firm_data/astrazeneca.csv
+2026-04-09 20:53:12,860 - data_ingestion - INFO - 
+Fetching data for Zealand Pharma...
+2026-04-09 20:53:13,026 - data_ingestion - INFO - ✓ Zealand Pharma: 97 articles saved to firm_data/zealand_pharma.csv
+2026-04-09 20:53:13,531 - data_ingestion - INFO - 
+Fetching data for Structure Therapeutics...
+2026-04-09 20:53:13,632 - data_ingestion - INFO - ✓ Structure Therapeutics: 10 articles saved to firm_data/structure_therapeutics.csv
+2026-04-09 20:53:14,137 - data_ingestion - INFO - 
+Fetching data for Viking Therapeutics...
+2026-04-09 20:53:14,270 - data_ingestion - INFO - ✓ Viking Therapeutics: 94 articles saved to firm_data/viking_therapeutics.csv
+2026-04-09 20:53:14,772 - data_ingestion - INFO - 
+Fetching data for Boehringer Ingelheim...
+2026-04-09 20:53:14,905 - data_ingestion - INFO - ✓ Boehringer Ingelheim: 100 articles saved to firm_data/boehringer_ingelheim.csv
+2026-04-09 20:53:15,410 - data_ingestion - INFO - 
+============================================================
+2026-04-09 20:53:15,411 - data_ingestion - INFO - Firm data collection complete!
+2026-04-09 20:53:15,411 - data_ingestion - INFO - ============================================================
+2026-04-09 20:53:15,411 - data_ingestion - INFO - 
+Summary:
+2026-04-09 20:53:15,411 - data_ingestion - INFO - Total articles across all firms: 861
+2026-04-09 20:53:15,411 - data_ingestion - INFO -   Novo Nordisk.......................   89 articles
+2026-04-09 20:53:15,411 - data_ingestion - INFO -   Eli Lilly..........................   93 articles
+2026-04-09 20:53:15,411 - data_ingestion - INFO -   Amgen..............................   87 articles
+2026-04-09 20:53:15,411 - data_ingestion - INFO -   Pfizer.............................  100 articles
+2026-04-09 20:53:15,411 - data_ingestion - INFO -   Roche..............................  100 articles
+2026-04-09 20:53:15,411 - data_ingestion - INFO -   AstraZeneca........................   91 articles
+2026-04-09 20:53:15,411 - data_ingestion - INFO -   Zealand Pharma.....................   97 articles
+2026-04-09 20:53:15,411 - data_ingestion - INFO -   Structure Therapeutics.............   10 articles
+2026-04-09 20:53:15,411 - data_ingestion - INFO -   Viking Therapeutics................   94 articles
+2026-04-09 20:53:15,411 - data_ingestion - INFO -   Boehringer Ingelheim...............  100 articles
+2026-04-09 20:56:41,148 - data_ingestion - INFO - NewsAPI initialized with query: (GLP-1 OR semaglutide OR tirzepatide OR liraglutid...
+2026-04-09 20:56:41,148 - data_ingestion - INFO - NewsAPI fetcher initialized
+2026-04-09 20:56:41,149 - data_ingestion - INFO - Fetching high-quality firm-specific data for 10 companies...
+2026-04-09 20:56:41,149 - data_ingestion - INFO - Date range: Last 90 days | Target: 500+ articles per firm
+
+2026-04-09 20:56:41,149 - data_ingestion - INFO - Fetching data for Novo Nordisk...
+2026-04-09 20:56:41,341 - data_ingestion - ERROR - Error fetching data for Novo Nordisk: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Novo+Nordisk%22+OR+%22semaglutide%22+OR+%22ozempic%22+OR+%22wegovy%22+OR+%22liraglutide%22+OR+%22saxenda%22+OR+%22GLP-1%22+OR+%22obesity%22+OR+%22weight+loss%22+OR+%22diabetes%22+OR+%22tirzepatide+competitor%22+-%22real+housewives%22+-%22drag+race%22+-%22bake+off%22+-%22shrinking%22+-%22tv+show%22&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:56:41,344 - data_ingestion - INFO - Fetching data for Eli Lilly...
+2026-04-09 20:56:41,438 - data_ingestion - ERROR - Error fetching data for Eli Lilly: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Eli+Lilly%22+OR+%22tirzepatide%22+OR+%22mounjaro%22+OR+%22zepbound%22+OR+%22dulaglutide%22+OR+%22trulicity%22+OR+%22GLP-1%22+OR+%22GIP+agonist%22+OR+%22obesity%22+OR+%22weight+loss%22+OR+%22diabetes%22+-%22real+housewives%22+-%22drag+race%22+-%22bake+off%22+-%22shrinking%22+-%22tv+show%22&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:56:41,438 - data_ingestion - INFO - Fetching data for Amgen...
+2026-04-09 20:56:41,524 - data_ingestion - ERROR - Error fetching data for Amgen: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Amgen%22+OR+%22maritide%22+OR+%22AMG133%22+OR+%22GLP-1%22+OR+%22obesity+drug%22+OR+%22weight+loss%22+OR+%22cardiometabolic%22+OR+%22pharmaceutical%22+-%22real+housewives%22+-%22drag+race%22+-%22bake+off%22+-%22shrinking%22+-%22tv+show%22&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:56:41,524 - data_ingestion - INFO - Fetching data for Pfizer...
+2026-04-09 20:56:41,613 - data_ingestion - ERROR - Error fetching data for Pfizer: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Pfizer%22+OR+%22danuglipron%22+OR+%22GLP-1%22+OR+%22oral+GLP-1%22+OR+%22obesity%22+OR+%22weight+loss%22+OR+%22pharmaceutical%22+-%22real+housewives%22+-%22drag+race%22+-%22bake+off%22+-%22shrinking%22+-%22tv+show%22&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:56:41,613 - data_ingestion - INFO - Fetching data for Roche...
+2026-04-09 20:56:41,706 - data_ingestion - ERROR - Error fetching data for Roche: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Roche%22+OR+%22CT-388%22+OR+%22CT-996%22+OR+%22GLP-1%22+OR+%22Carmot%22+OR+%22oral+obesity+drug%22+OR+%22pharmaceutical%22+OR+%22M%26A%22+-%22real+housewives%22+-%22drag+race%22+-%22bake+off%22+-%22shrinking%22+-%22tv+show%22&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:56:41,706 - data_ingestion - INFO - Fetching data for AstraZeneca...
+2026-04-09 20:56:41,877 - data_ingestion - ERROR - Error fetching data for AstraZeneca: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22AstraZeneca%22+OR+%22GLP-1%2FGIP%22+OR+%22GLP-1%22+OR+%22obesity%22+OR+%22cardiometabolic%22+OR+%22pharmaceutical%22+OR+%22cardiovascular%22+-%22real+housewives%22+-%22drag+race%22+-%22bake+off%22+-%22shrinking%22+-%22tv+show%22&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:56:41,877 - data_ingestion - INFO - Fetching data for Zealand Pharma...
+2026-04-09 20:56:41,962 - data_ingestion - ERROR - Error fetching data for Zealand Pharma: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Zealand+Pharma%22+OR+%22GLP-1%22+OR+%22obesity+drug%22+OR+%22pharmaceutical%22+OR+%22Denmark%22+OR+%22biotech%22+-%22real+housewives%22+-%22drag+race%22+-%22bake+off%22+-%22shrinking%22+-%22tv+show%22&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:56:41,963 - data_ingestion - INFO - Fetching data for Structure Therapeutics...
+2026-04-09 20:56:42,055 - data_ingestion - ERROR - Error fetching data for Structure Therapeutics: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Structure+Therapeutics%22+OR+%22GLP-1%22+OR+%22oral+obesity%22+OR+%22GSBR%22+OR+%22pharmaceutical%22+OR+%22small+molecule%22+-%22real+housewives%22+-%22drag+race%22+-%22bake+off%22+-%22shrinking%22+-%22tv+show%22&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:56:42,055 - data_ingestion - INFO - Fetching data for Viking Therapeutics...
+2026-04-09 20:56:42,139 - data_ingestion - ERROR - Error fetching data for Viking Therapeutics: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Viking+Therapeutics%22+OR+%22VK2735%22+OR+%22GLP-1%22+OR+%22GIP%22+OR+%22obesity%22+OR+%22weight+loss%22+OR+%22clinical+trial%22+-%22real+housewives%22+-%22drag+race%22+-%22bake+off%22+-%22shrinking%22+-%22tv+show%22&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:56:42,139 - data_ingestion - INFO - Fetching data for Boehringer Ingelheim...
+2026-04-09 20:56:42,235 - data_ingestion - ERROR - Error fetching data for Boehringer Ingelheim: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Boehringer+Ingelheim%22+OR+%22GLP-1%22+OR+%22obesity+drug%22+OR+%22pharmaceutical%22+OR+%22cardiometabolic%22+OR+%22German+pharma%22+-%22real+housewives%22+-%22drag+race%22+-%22bake+off%22+-%22shrinking%22+-%22tv+show%22&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:56:42,236 - data_ingestion - INFO - 
+============================================================
+2026-04-09 20:56:42,236 - data_ingestion - INFO - Firm data collection complete!
+2026-04-09 20:56:42,236 - data_ingestion - INFO - ============================================================
+2026-04-09 20:56:42,236 - data_ingestion - INFO - 
+Summary:
+2026-04-09 20:56:42,236 - data_ingestion - INFO - Total articles across all firms: 0
+2026-04-09 20:56:42,236 - data_ingestion - INFO - ✗ Novo Nordisk.......................    0 articles
+2026-04-09 20:56:42,236 - data_ingestion - INFO - ✗ Eli Lilly..........................    0 articles
+2026-04-09 20:56:42,236 - data_ingestion - INFO - ✗ Amgen..............................    0 articles
+2026-04-09 20:56:42,236 - data_ingestion - INFO - ✗ Pfizer.............................    0 articles
+2026-04-09 20:56:42,236 - data_ingestion - INFO - ✗ Roche..............................    0 articles
+2026-04-09 20:56:42,236 - data_ingestion - INFO - ✗ AstraZeneca........................    0 articles
+2026-04-09 20:56:42,236 - data_ingestion - INFO - ✗ Zealand Pharma.....................    0 articles
+2026-04-09 20:56:42,236 - data_ingestion - INFO - ✗ Structure Therapeutics.............    0 articles
+2026-04-09 20:56:42,236 - data_ingestion - INFO - ✗ Viking Therapeutics................    0 articles
+2026-04-09 20:56:42,236 - data_ingestion - INFO - ✗ Boehringer Ingelheim...............    0 articles
+2026-04-09 20:57:44,222 - data_ingestion - INFO - NewsAPI initialized with query: (GLP-1 OR semaglutide OR tirzepatide OR liraglutid...
+2026-04-09 20:57:44,222 - data_ingestion - INFO - NewsAPI fetcher initialized
+2026-04-09 20:57:44,222 - data_ingestion - INFO - Fetching high-quality firm-specific data for 10 companies...
+2026-04-09 20:57:44,222 - data_ingestion - INFO - Date range: Last 90 days | Target: 500+ articles per firm
+
+2026-04-09 20:57:44,222 - data_ingestion - INFO - Fetching data for Novo Nordisk...
+2026-04-09 20:57:44,315 - data_ingestion - ERROR - Error fetching data for Novo Nordisk: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Novo+Nordisk%22+%28%22semaglutide%22+OR+%22ozempic%22%29&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:57:44,316 - data_ingestion - INFO - Fetching data for Eli Lilly...
+2026-04-09 20:57:44,407 - data_ingestion - ERROR - Error fetching data for Eli Lilly: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Eli+Lilly%22+%28%22tirzepatide%22+OR+%22mounjaro%22%29&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:57:44,407 - data_ingestion - INFO - Fetching data for Amgen...
+2026-04-09 20:57:44,503 - data_ingestion - ERROR - Error fetching data for Amgen: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Amgen%22+%28%22maritide%22%29&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:57:44,506 - data_ingestion - INFO - Fetching data for Pfizer...
+2026-04-09 20:57:44,600 - data_ingestion - ERROR - Error fetching data for Pfizer: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Pfizer%22+%28%22danuglipron%22%29&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:57:44,600 - data_ingestion - INFO - Fetching data for Roche...
+2026-04-09 20:57:44,689 - data_ingestion - ERROR - Error fetching data for Roche: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Roche%22+%28%22CT-388%22+OR+%22CT-996%22%29&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:57:44,689 - data_ingestion - INFO - Fetching data for AstraZeneca...
+2026-04-09 20:57:44,781 - data_ingestion - ERROR - Error fetching data for AstraZeneca: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22AstraZeneca%22&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:57:44,781 - data_ingestion - INFO - Fetching data for Zealand Pharma...
+2026-04-09 20:57:44,866 - data_ingestion - ERROR - Error fetching data for Zealand Pharma: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Zealand+Pharma%22&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:57:44,867 - data_ingestion - INFO - Fetching data for Structure Therapeutics...
+2026-04-09 20:57:44,963 - data_ingestion - ERROR - Error fetching data for Structure Therapeutics: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Structure+Therapeutics%22&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:57:44,963 - data_ingestion - INFO - Fetching data for Viking Therapeutics...
+2026-04-09 20:57:45,064 - data_ingestion - ERROR - Error fetching data for Viking Therapeutics: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Viking+Therapeutics%22+%28%22VK2735%22%29&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:57:45,065 - data_ingestion - INFO - Fetching data for Boehringer Ingelheim...
+2026-04-09 20:57:45,171 - data_ingestion - ERROR - Error fetching data for Boehringer Ingelheim: 426 Client Error: Upgrade Required for url: https://newsapi.org/v2/everything?q=%22Boehringer+Ingelheim%22&language=en&sortBy=publishedAt&pageSize=100&from=2026-01-10&apiKey=bcf3cf47ea0d43c798e021917799af25
+2026-04-09 20:57:45,173 - data_ingestion - INFO - 
+============================================================
+2026-04-09 20:57:45,173 - data_ingestion - INFO - Firm data collection complete!
+2026-04-09 20:57:45,173 - data_ingestion - INFO - ============================================================
+2026-04-09 20:57:45,174 - data_ingestion - INFO - 
+Summary:
+2026-04-09 20:57:45,174 - data_ingestion - INFO - Total articles across all firms: 0
+2026-04-09 20:57:45,174 - data_ingestion - INFO - ✗ Novo Nordisk.......................    0 articles
+2026-04-09 20:57:45,174 - data_ingestion - INFO - ✗ Eli Lilly..........................    0 articles
+2026-04-09 20:57:45,174 - data_ingestion - INFO - ✗ Amgen..............................    0 articles
+2026-04-09 20:57:45,174 - data_ingestion - INFO - ✗ Pfizer.............................    0 articles
+2026-04-09 20:57:45,174 - data_ingestion - INFO - ✗ Roche..............................    0 articles
+2026-04-09 20:57:45,175 - data_ingestion - INFO - ✗ AstraZeneca........................    0 articles
+2026-04-09 20:57:45,175 - data_ingestion - INFO - ✗ Zealand Pharma.....................    0 articles
+2026-04-09 20:57:45,175 - data_ingestion - INFO - ✗ Structure Therapeutics.............    0 articles
+2026-04-09 20:57:45,175 - data_ingestion - INFO - ✗ Viking Therapeutics................    0 articles
+2026-04-09 20:57:45,175 - data_ingestion - INFO - ✗ Boehringer Ingelheim...............    0 articles
+2026-04-09 20:58:05,160 - data_ingestion - INFO - NewsAPI initialized with query: (GLP-1 OR semaglutide OR tirzepatide OR liraglutid...
+2026-04-09 20:58:05,160 - data_ingestion - INFO - NewsAPI fetcher initialized
+2026-04-09 20:58:05,160 - data_ingestion - INFO - Fetching high-quality firm-specific data for 10 companies...
+2026-04-09 20:58:05,160 - data_ingestion - INFO - Date range: Last 30 days | Target: 100+ articles per firm
+
+2026-04-09 20:58:05,160 - data_ingestion - INFO - Fetching data for Novo Nordisk...
+2026-04-09 20:58:05,469 - data_ingestion - INFO - ⚠ Novo Nordisk: 79 articles saved to firm_data/novo_nordisk.csv
+2026-04-09 20:58:05,971 - data_ingestion - INFO - Fetching data for Eli Lilly...
+2026-04-09 20:58:06,260 - data_ingestion - INFO - ⚠ Eli Lilly: 57 articles saved to firm_data/eli_lilly.csv
+2026-04-09 20:58:06,765 - data_ingestion - INFO - Fetching data for Amgen...
+2026-04-09 20:58:06,880 - data_ingestion - INFO - ⚠ Amgen: 2 articles saved to firm_data/amgen.csv
+2026-04-09 20:58:07,385 - data_ingestion - INFO - Fetching data for Pfizer...
+2026-04-09 20:58:07,487 - data_ingestion - INFO - ⚠ Pfizer: 1 articles saved to firm_data/pfizer.csv
+2026-04-09 20:58:07,988 - data_ingestion - INFO - Fetching data for Roche...
+2026-04-09 20:58:08,092 - data_ingestion - INFO - ✗ Roche: No relevant articles found
+2026-04-09 20:58:08,598 - data_ingestion - INFO - Fetching data for AstraZeneca...
+2026-04-09 20:58:08,866 - data_ingestion - INFO - ⚠ AstraZeneca: 45 articles saved to firm_data/astrazeneca.csv
+2026-04-09 20:58:09,371 - data_ingestion - INFO - Fetching data for Zealand Pharma...
+2026-04-09 20:58:09,494 - data_ingestion - INFO - ⚠ Zealand Pharma: 5 articles saved to firm_data/zealand_pharma.csv
+2026-04-09 20:58:09,996 - data_ingestion - INFO - Fetching data for Structure Therapeutics...
+2026-04-09 20:58:10,135 - data_ingestion - INFO - ⚠ Structure Therapeutics: 8 articles saved to firm_data/structure_therapeutics.csv
+2026-04-09 20:58:10,637 - data_ingestion - INFO - Fetching data for Viking Therapeutics...
+2026-04-09 20:58:10,758 - data_ingestion - INFO - ⚠ Viking Therapeutics: 2 articles saved to firm_data/viking_therapeutics.csv
+2026-04-09 20:58:11,263 - data_ingestion - INFO - Fetching data for Boehringer Ingelheim...
+2026-04-09 20:58:11,501 - data_ingestion - INFO - ⚠ Boehringer Ingelheim: 38 articles saved to firm_data/boehringer_ingelheim.csv
+2026-04-09 20:58:12,007 - data_ingestion - INFO - 
+============================================================
+2026-04-09 20:58:12,008 - data_ingestion - INFO - Firm data collection complete!
+2026-04-09 20:58:12,008 - data_ingestion - INFO - ============================================================
+2026-04-09 20:58:12,008 - data_ingestion - INFO - 
+Summary:
+2026-04-09 20:58:12,008 - data_ingestion - INFO - Total articles across all firms: 237
+2026-04-09 20:58:12,008 - data_ingestion - INFO - ⚠ Novo Nordisk.......................   79 articles
+2026-04-09 20:58:12,008 - data_ingestion - INFO - ⚠ Eli Lilly..........................   57 articles
+2026-04-09 20:58:12,008 - data_ingestion - INFO - ⚠ Amgen..............................    2 articles
+2026-04-09 20:58:12,009 - data_ingestion - INFO - ⚠ Pfizer.............................    1 articles
+2026-04-09 20:58:12,009 - data_ingestion - INFO - ✗ Roche..............................    0 articles
+2026-04-09 20:58:12,009 - data_ingestion - INFO - ⚠ AstraZeneca........................   45 articles
+2026-04-09 20:58:12,009 - data_ingestion - INFO - ⚠ Zealand Pharma.....................    5 articles
+2026-04-09 20:58:12,009 - data_ingestion - INFO - ⚠ Structure Therapeutics.............    8 articles
+2026-04-09 20:58:12,009 - data_ingestion - INFO - ⚠ Viking Therapeutics................    2 articles
+2026-04-09 20:58:12,009 - data_ingestion - INFO - ⚠ Boehringer Ingelheim...............   38 articles
+2026-04-09 20:58:39,035 - data_ingestion - INFO - NewsAPI initialized with query: (GLP-1 OR semaglutide OR tirzepatide OR liraglutid...
+2026-04-09 20:58:39,036 - data_ingestion - INFO - NewsAPI fetcher initialized
+2026-04-09 20:58:39,036 - data_ingestion - INFO - Fetching high-quality firm-specific data for 10 companies...
+2026-04-09 20:58:39,036 - data_ingestion - INFO - Date range: Last 30 days | Target: 200+ articles per firm
+
+2026-04-09 20:58:39,036 - data_ingestion - INFO - Fetching data for Novo Nordisk...
+2026-04-09 20:58:39,180 - data_ingestion - INFO - ⚠ Novo Nordisk: 92 articles saved to firm_data/novo_nordisk.csv
+2026-04-09 20:58:39,685 - data_ingestion - INFO - Fetching data for Eli Lilly...
+2026-04-09 20:58:39,802 - data_ingestion - INFO - ⚠ Eli Lilly: 65 articles saved to firm_data/eli_lilly.csv
+2026-04-09 20:58:40,307 - data_ingestion - INFO - Fetching data for Amgen...
+2026-04-09 20:58:40,403 - data_ingestion - INFO - ⚠ Amgen: 2 articles saved to firm_data/amgen.csv
+2026-04-09 20:58:40,908 - data_ingestion - INFO - Fetching data for Pfizer...
+2026-04-09 20:58:41,008 - data_ingestion - INFO - ⚠ Pfizer: 1 articles saved to firm_data/pfizer.csv
+2026-04-09 20:58:41,513 - data_ingestion - INFO - Fetching data for Roche...
+2026-04-09 20:58:41,615 - data_ingestion - INFO - ✗ Roche: No relevant articles found
+2026-04-09 20:58:42,120 - data_ingestion - INFO - Fetching data for AstraZeneca...
+2026-04-09 20:58:42,247 - data_ingestion - INFO - ⚠ AstraZeneca: 87 articles saved to firm_data/astrazeneca.csv
+2026-04-09 20:58:42,752 - data_ingestion - INFO - Fetching data for Zealand Pharma...
+2026-04-09 20:58:42,857 - data_ingestion - INFO - ⚠ Zealand Pharma: 5 articles saved to firm_data/zealand_pharma.csv
+2026-04-09 20:58:43,362 - data_ingestion - INFO - Fetching data for Structure Therapeutics...
+2026-04-09 20:58:43,455 - data_ingestion - INFO - ⚠ Structure Therapeutics: 10 articles saved to firm_data/structure_therapeutics.csv
+2026-04-09 20:58:43,960 - data_ingestion - INFO - Fetching data for Viking Therapeutics...
+2026-04-09 20:58:44,055 - data_ingestion - INFO - ⚠ Viking Therapeutics: 2 articles saved to firm_data/viking_therapeutics.csv
+2026-04-09 20:58:44,561 - data_ingestion - INFO - Fetching data for Boehringer Ingelheim...
+2026-04-09 20:58:44,700 - data_ingestion - INFO - ⚠ Boehringer Ingelheim: 51 articles saved to firm_data/boehringer_ingelheim.csv
+2026-04-09 20:58:45,205 - data_ingestion - INFO - 
+============================================================
+2026-04-09 20:58:45,205 - data_ingestion - INFO - Firm data collection complete!
+2026-04-09 20:58:45,205 - data_ingestion - INFO - ============================================================
+2026-04-09 20:58:45,205 - data_ingestion - INFO - 
+Summary:
+2026-04-09 20:58:45,205 - data_ingestion - INFO - Total articles across all firms: 315
+2026-04-09 20:58:45,205 - data_ingestion - INFO - ⚠ Novo Nordisk.......................   92 articles
+2026-04-09 20:58:45,205 - data_ingestion - INFO - ⚠ Eli Lilly..........................   65 articles
+2026-04-09 20:58:45,205 - data_ingestion - INFO - ⚠ Amgen..............................    2 articles
+2026-04-09 20:58:45,206 - data_ingestion - INFO - ⚠ Pfizer.............................    1 articles
+2026-04-09 20:58:45,206 - data_ingestion - INFO - ✗ Roche..............................    0 articles
+2026-04-09 20:58:45,206 - data_ingestion - INFO - ⚠ AstraZeneca........................   87 articles
+2026-04-09 20:58:45,206 - data_ingestion - INFO - ⚠ Zealand Pharma.....................    5 articles
+2026-04-09 20:58:45,206 - data_ingestion - INFO - ⚠ Structure Therapeutics.............   10 articles
+2026-04-09 20:58:45,206 - data_ingestion - INFO - ⚠ Viking Therapeutics................    2 articles
+2026-04-09 20:58:45,206 - data_ingestion - INFO - ⚠ Boehringer Ingelheim...............   51 articles
+2026-04-09 20:59:13,018 - data_ingestion - INFO - NewsAPI initialized with query: (GLP-1 OR semaglutide OR tirzepatide OR liraglutid...
+2026-04-09 20:59:13,018 - data_ingestion - INFO - NewsAPI fetcher initialized
+2026-04-09 20:59:13,018 - data_ingestion - INFO - Fetching high-quality firm-specific data for 10 companies...
+2026-04-09 20:59:13,019 - data_ingestion - INFO - Date range: Last 30 days | Target: 300+ articles per firm
+
+2026-04-09 20:59:13,019 - data_ingestion - INFO - Fetching data for Novo Nordisk...
+2026-04-09 20:59:13,157 - data_ingestion - INFO - ⚠ Novo Nordisk: 92 articles saved to firm_data/novo_nordisk.csv
+2026-04-09 20:59:13,661 - data_ingestion - INFO - Fetching data for Eli Lilly...
+2026-04-09 20:59:13,787 - data_ingestion - INFO - ⚠ Eli Lilly: 65 articles saved to firm_data/eli_lilly.csv
+2026-04-09 20:59:14,292 - data_ingestion - INFO - Fetching data for Amgen...
+2026-04-09 20:59:14,398 - data_ingestion - INFO - ⚠ Amgen: 2 articles saved to firm_data/amgen.csv
+2026-04-09 20:59:14,903 - data_ingestion - INFO - Fetching data for Pfizer...
+2026-04-09 20:59:15,006 - data_ingestion - INFO - ⚠ Pfizer: 1 articles saved to firm_data/pfizer.csv
+2026-04-09 20:59:15,511 - data_ingestion - INFO - Fetching data for Roche...
+2026-04-09 20:59:15,613 - data_ingestion - INFO - ✗ Roche: No relevant articles found
+2026-04-09 20:59:16,119 - data_ingestion - INFO - Fetching data for AstraZeneca...
+2026-04-09 20:59:16,255 - data_ingestion - INFO - ⚠ AstraZeneca: 90 articles saved to firm_data/astrazeneca.csv
+2026-04-09 20:59:16,760 - data_ingestion - INFO - Fetching data for Zealand Pharma...
+2026-04-09 20:59:16,864 - data_ingestion - INFO - ⚠ Zealand Pharma: 5 articles saved to firm_data/zealand_pharma.csv
+2026-04-09 20:59:17,368 - data_ingestion - INFO - Fetching data for Structure Therapeutics...
+2026-04-09 20:59:17,470 - data_ingestion - INFO - ⚠ Structure Therapeutics: 10 articles saved to firm_data/structure_therapeutics.csv
+2026-04-09 20:59:17,972 - data_ingestion - INFO - Fetching data for Viking Therapeutics...
+2026-04-09 20:59:18,077 - data_ingestion - INFO - ⚠ Viking Therapeutics: 2 articles saved to firm_data/viking_therapeutics.csv
+2026-04-09 20:59:18,582 - data_ingestion - INFO - Fetching data for Boehringer Ingelheim...
+2026-04-09 20:59:18,728 - data_ingestion - INFO - ⚠ Boehringer Ingelheim: 51 articles saved to firm_data/boehringer_ingelheim.csv
+2026-04-09 20:59:19,231 - data_ingestion - INFO - 
+============================================================
+2026-04-09 20:59:19,231 - data_ingestion - INFO - Firm data collection complete!
+2026-04-09 20:59:19,231 - data_ingestion - INFO - ============================================================
+2026-04-09 20:59:19,232 - data_ingestion - INFO - 
+Summary:
+2026-04-09 20:59:19,232 - data_ingestion - INFO - Total articles across all firms: 318
+2026-04-09 20:59:19,232 - data_ingestion - INFO - ⚠ Novo Nordisk.......................   92 articles
+2026-04-09 20:59:19,232 - data_ingestion - INFO - ⚠ Eli Lilly..........................   65 articles
+2026-04-09 20:59:19,232 - data_ingestion - INFO - ⚠ Amgen..............................    2 articles
+2026-04-09 20:59:19,232 - data_ingestion - INFO - ⚠ Pfizer.............................    1 articles
+2026-04-09 20:59:19,232 - data_ingestion - INFO - ✗ Roche..............................    0 articles
+2026-04-09 20:59:19,232 - data_ingestion - INFO - ⚠ AstraZeneca........................   90 articles
+2026-04-09 20:59:19,232 - data_ingestion - INFO - ⚠ Zealand Pharma.....................    5 articles
+2026-04-09 20:59:19,232 - data_ingestion - INFO - ⚠ Structure Therapeutics.............   10 articles
+2026-04-09 20:59:19,232 - data_ingestion - INFO - ⚠ Viking Therapeutics................    2 articles
+2026-04-09 20:59:19,232 - data_ingestion - INFO - ⚠ Boehringer Ingelheim...............   51 articles
+2026-04-09 20:59:40,201 - data_ingestion - INFO - NewsAPI initialized with query: (GLP-1 OR semaglutide OR tirzepatide OR liraglutid...
+2026-04-09 20:59:40,202 - data_ingestion - INFO - NewsAPI fetcher initialized
+2026-04-09 20:59:40,202 - data_ingestion - INFO - Fetching high-quality firm-specific data for 10 companies...
+2026-04-09 20:59:40,202 - data_ingestion - INFO - Date range: Last 30 days | Target: 100+ articles per firm
+
+2026-04-09 20:59:40,202 - data_ingestion - INFO - Fetching data for Novo Nordisk...
+2026-04-09 20:59:40,348 - data_ingestion - INFO - ⚠ Novo Nordisk: 92 articles saved to firm_data/novo_nordisk.csv
+2026-04-09 20:59:40,848 - data_ingestion - INFO - Fetching data for Eli Lilly...
+2026-04-09 20:59:40,961 - data_ingestion - INFO - ⚠ Eli Lilly: 66 articles saved to firm_data/eli_lilly.csv
+2026-04-09 20:59:41,465 - data_ingestion - INFO - Fetching data for Amgen...
+2026-04-09 20:59:41,564 - data_ingestion - INFO - ⚠ Amgen: 2 articles saved to firm_data/amgen.csv
+2026-04-09 20:59:42,069 - data_ingestion - INFO - Fetching data for Pfizer...
+2026-04-09 20:59:42,174 - data_ingestion - INFO - ⚠ Pfizer: 1 articles saved to firm_data/pfizer.csv
+2026-04-09 20:59:42,679 - data_ingestion - INFO - Fetching data for Roche...
+2026-04-09 20:59:42,782 - data_ingestion - INFO - ✗ Roche: No relevant articles found
+2026-04-09 20:59:43,288 - data_ingestion - INFO - Fetching data for AstraZeneca...
+2026-04-09 20:59:43,482 - data_ingestion - INFO - ⚠ AstraZeneca: 91 articles saved to firm_data/astrazeneca.csv
+2026-04-09 20:59:43,984 - data_ingestion - INFO - Fetching data for Zealand Pharma...
+2026-04-09 20:59:44,081 - data_ingestion - INFO - ⚠ Zealand Pharma: 5 articles saved to firm_data/zealand_pharma.csv
+2026-04-09 20:59:44,585 - data_ingestion - INFO - Fetching data for Structure Therapeutics...
+2026-04-09 20:59:44,692 - data_ingestion - INFO - ⚠ Structure Therapeutics: 10 articles saved to firm_data/structure_therapeutics.csv
+2026-04-09 20:59:45,193 - data_ingestion - INFO - Fetching data for Viking Therapeutics...
+2026-04-09 20:59:45,296 - data_ingestion - INFO - ⚠ Viking Therapeutics: 2 articles saved to firm_data/viking_therapeutics.csv
+2026-04-09 20:59:45,797 - data_ingestion - INFO - Fetching data for Boehringer Ingelheim...
+2026-04-09 20:59:45,916 - data_ingestion - INFO - ⚠ Boehringer Ingelheim: 52 articles saved to firm_data/boehringer_ingelheim.csv
+2026-04-09 20:59:46,418 - data_ingestion - INFO - 
+============================================================
+2026-04-09 20:59:46,419 - data_ingestion - INFO - Firm data collection complete!
+2026-04-09 20:59:46,419 - data_ingestion - INFO - ============================================================
+2026-04-09 20:59:46,419 - data_ingestion - INFO - 
+Summary:
+2026-04-09 20:59:46,419 - data_ingestion - INFO - Total articles across all firms: 321
+2026-04-09 20:59:46,419 - data_ingestion - INFO - ⚠ Novo Nordisk.......................   92 articles
+2026-04-09 20:59:46,419 - data_ingestion - INFO - ⚠ Eli Lilly..........................   66 articles
+2026-04-09 20:59:46,419 - data_ingestion - INFO - ⚠ Amgen..............................    2 articles
+2026-04-09 20:59:46,419 - data_ingestion - INFO - ⚠ Pfizer.............................    1 articles
+2026-04-09 20:59:46,419 - data_ingestion - INFO - ✗ Roche..............................    0 articles
+2026-04-09 20:59:46,419 - data_ingestion - INFO - ⚠ AstraZeneca........................   91 articles
+2026-04-09 20:59:46,419 - data_ingestion - INFO - ⚠ Zealand Pharma.....................    5 articles
+2026-04-09 20:59:46,419 - data_ingestion - INFO - ⚠ Structure Therapeutics.............   10 articles
+2026-04-09 20:59:46,419 - data_ingestion - INFO - ⚠ Viking Therapeutics................    2 articles
+2026-04-09 20:59:46,419 - data_ingestion - INFO - ⚠ Boehringer Ingelheim...............   52 articles
+2026-04-09 21:02:20,033 - data_ingestion - INFO - NewsAPI initialized with query: (GLP-1 OR semaglutide OR tirzepatide OR liraglutid...
+2026-04-09 21:02:20,033 - data_ingestion - INFO - NewsAPI fetcher initialized
+2026-04-09 21:02:20,034 - data_ingestion - INFO - Starting data collection pipeline...
+2026-04-09 21:02:20,034 - data_ingestion - INFO - Fetching news articles from last 30 days...
+2026-04-09 21:02:20,202 - data_ingestion - INFO - Found 97 articles
+2026-04-09 21:02:20,220 - data_ingestion - INFO - Validated 97 articles from NewsAPI
+2026-04-09 21:02:20,224 - data_ingestion - INFO - Added 97 articles from NewsAPI
+2026-04-09 21:02:20,226 - data_ingestion - INFO - Pipeline complete: 97 total records (News: 1, Reddit: 0)

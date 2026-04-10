@@ -95,11 +95,16 @@ def calculate_beta(ticker: str, returns_data: pd.DataFrame,
     if len(common_idx) < 2:
         return np.nan
     
-    # Align both series to common dates
-    stock_ret_aligned = stock_ret[common_idx]
+    # Align both series to common dates and drop NaNs
+    stock_ret_aligned = stock_ret[common_idx].dropna()
     market_ret = spy_returns[common_idx].dropna()
     
-    if len(market_ret) < 2:
+    # Re-align after dropping NaNs to ensure same length
+    final_idx = stock_ret_aligned.index.intersection(market_ret.index)
+    stock_ret_aligned = stock_ret_aligned[final_idx].values
+    market_ret = market_ret[final_idx].values
+    
+    if len(final_idx) < 2:
         return np.nan
     
     # Calculate covariance and variance

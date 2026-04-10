@@ -3,6 +3,7 @@ Advanced Investment Chatbot with Market Intelligence and Anti-Hallucination Feat
 
 Key Features:
 - Real-time data fetching with validation
+- LLM-enhanced narrative explanations via FinBERT & FinGPT
 - Confidence indicators for all claims
 - Explicit fact vs. analysis separation
 - Graceful handling of uncertainty
@@ -15,8 +16,9 @@ Capabilities:
 - Industry/sector analysis and trends
 - Market regime analysis and outlook
 - Macro economic commentary
-- Portfolio context and recommendations
+- Portfolio context and recommendations with LLM descriptions
 - General investment education
+- Sentiment analysis for decision-making
 """
 
 import pandas as pd
@@ -27,6 +29,24 @@ from datetime import datetime, timedelta
 import re
 import warnings
 warnings.filterwarnings('ignore')
+
+# Import LLM module for enhanced explanations
+try:
+    from llm import (
+        FinancialLLMEnsemble, 
+        generate_investment_recommendation,
+        AnalysisContext,
+        AnalysisResponse,
+        LLMBackend,
+        deep_stock_comparison,
+        sector_rotation_analysis,
+        portfolio_stress_test,
+        extract_portfolio_risks
+    )
+    LLM_AVAILABLE = True
+except ImportError:
+    LLM_AVAILABLE = False
+    print("LLM module not available. Running chatbot without LLM enhancements.")
 
 
 # Investment disclaimer
@@ -39,6 +59,212 @@ Past performance does not guarantee future results. Please consult a licensed fi
 def get_data_timestamp() -> str:
     """Return current timestamp for data freshness tracking"""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def get_market_status() -> Dict[str, Any]:
+    """
+    Determine if US stock market is currently open, and return status
+    
+    Returns:
+        - status: 'open', 'closed', 'pre_market', 'after_hours'
+        - emoji: Visual indicator
+        - message: Human-readable status
+    """
+    from datetime import datetime
+    
+    # Get current time in US Eastern Time
+    eastern = pytz.timezone('US/Eastern')
+    now_et = datetime.now(eastern)
+    
+    # Market hours: 9:30 AM - 4:00 PM ET, Monday-Friday
+    market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+    market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+    pre_market_start = now_et.replace(hour=4, minute=0, second=0, microsecond=0)
+    after_hours_end = now_et.replace(hour=20, minute=0, second=0, microsecond=0)
+    
+    is_weekday = now_et.weekday() < 5  # 0-4 is Monday-Friday
+    
+    if not is_weekday:
+        return {
+            'status': 'closed',
+            'emoji': '🔴',
+            'message': 'Market Closed (Weekend)',
+            'time': now_et.strftime('%I:%M %p ET')
+        }
+    
+    if market_open <= now_et < market_close:
+        time_to_close = market_close - now_et
+        hours = time_to_close.seconds // 3600
+        minutes = (time_to_close.seconds % 3600) // 60
+        return {
+            'status': 'open',
+            'emoji': '🟢',
+            'message': f'Market Open (closes in {hours}h {minutes}m)',
+            'time': now_et.strftime('%I:%M %p ET')
+        }
+    elif pre_market_start <= now_et < market_open:
+        return {
+            'status': 'pre_market',
+            'emoji': '🟡',
+            'message': 'Pre-Market Trading',
+            'time': now_et.strftime('%I:%M %p ET')
+        }
+    elif market_close <= now_et < after_hours_end:
+        return {
+            'status': 'after_hours',
+            'emoji': '🟡',
+            'message': 'After-Hours Trading',
+            'time': now_et.strftime('%I:%M %p ET')
+        }
+    else:
+        return {
+            'status': 'closed',
+            'emoji': '🔴',
+            'message': 'Market Closed',
+            'time': now_et.strftime('%I:%M %p ET')
+        }
+
+
+# ==================== LLM ORCHESTRATOR FUNCTIONS ====================
+
+def llm_orchestrate_analysis(classification: Dict, 
+                            question: str,
+                            portfolio_weights: Optional[pd.Series] = None,
+                            returns_data: Optional[pd.DataFrame] = None) -> str:
+    """
+    Orchestrate analysis by creating AnalysisContext and routing to appropriate LLM analyzer
+    
+    Parameters:
+    -----------
+    classification : dict
+        Output from classify_question_type()
+    question : str
+        Original user question
+    portfolio_weights : pd.Series, optional
+        Portfolio allocation
+    returns_data : pd.DataFrame, optional
+        Historical returns
+        
+    Returns:
+    --------
+    response : str
+        Markdown formatted response from LLM analyzer
+    """
+    if not LLM_AVAILABLE:
+        return None  # Fall back to existing functions
+    
+    try:
+        # Extract question details
+        question_type = classification.get('type', 'general')
+        intent = classification.get('intent', 'analysis')
+        entities = classification.get('entities', [])
+        confidence = classification.get('confidence', 0.7)
+        
+        # Detect timeframe from question
+        timeframe = 'all'
+        if 'today' in question.lower() or 'now' in question.lower():
+            timeframe = 'today'
+        elif 'week' in question.lower():
+            timeframe = '1w'
+        elif 'month' in question.lower():
+            timeframe = '1m'
+        elif '3 month' in question.lower():
+            timeframe = '3m'
+        elif 'year' in question.lower() or 'ytd' in question.lower():
+            timeframe = '1y'
+        
+        # Create analysis context
+        context = AnalysisContext(
+            question_type=question_type,
+            intent=intent,
+            entities=entities,
+            timeframe=timeframe,
+            portfolio_weights=portfolio_weights,
+            returns_data=returns_data,
+            confidence=confidence,
+            raw_question=question
+        )
+        
+        # Route to appropriate analyzer based on question type
+        response = None
+        
+        if question_type == 'comparison' and len(entities) > 0:
+            response = deep_stock_comparison(context)
+        elif question_type == 'sector' and len(entities) > 0:
+            response = sector_rotation_analysis(context)
+        elif question_type == 'portfolio' and portfolio_weights is not None:
+            # Run stress test and risk analysis
+            stress_result = portfolio_stress_test(context)
+            risk_result = extract_portfolio_risks(context)
+            # Combine results
+            combined_narrative = f"{stress_result.narrative}\n\n{risk_result.narrative}"
+            response = AnalysisResponse(
+                narrative=combined_narrative,
+                key_metrics={**stress_result.key_metrics, **risk_result.key_metrics},
+                confidence_level=min(stress_result.confidence_level, risk_result.confidence_level),
+                data_sources=list(set(stress_result.data_sources + risk_result.data_sources)),
+                recommendations=stress_result.recommendations + risk_result.recommendations
+            )
+        
+        # If analyzer returned response, format and return
+        if response:
+            return response.to_markdown()
+    
+    except Exception as e:
+        print(f"LLM orchestration error: {e}")
+        return None
+    
+    return None
+
+
+def generate_llm_narrative(metric_name: str,
+                          metric_value: float,
+                          backend: str = 'fallback',
+                          api_key: str = None) -> str:
+    """
+    Generate natural language narrative for a metric using LLM backend
+    
+    Parameters:
+    -----------
+    metric_name : str
+        Name of metric ('sharpe_ratio', 'volatility', etc.)
+    metric_value : float
+        Numerical value
+    backend : str
+        'openai', 'anthropic', or 'fallback'
+    api_key : str
+        API key if using external service
+        
+    Returns:
+    --------
+    narrative : str
+        Natural language explanation
+    """
+    if not LLM_AVAILABLE:
+        return f"{metric_name}: {metric_value}"
+    
+    try:
+        llm_backend = LLMBackend(backend=backend, api_key=api_key)
+        
+        prompt = f"""
+Provide a 2-3 sentence investor-friendly explanation for this metric:
+
+Metric: {metric_name}
+Value: {metric_value}
+
+Be concise and actionable."""
+        
+        if backend == 'openai' and hasattr(llm_backend, '_generate_with_openai'):
+            return llm_backend._generate_with_openai(prompt)
+        elif backend == 'anthropic' and hasattr(llm_backend, '_generate_with_claude'):
+            return llm_backend._generate_with_claude(prompt)
+        else:
+            # Fallback to existing narrative function
+            return generate_llm_explanation(metric_name, metric_value)
+    
+    except Exception as e:
+        print(f"Error generating LLM narrative: {e}")
+        return f"{metric_name}: {metric_value}"
 
 
 def get_market_status() -> Dict[str, Any]:
@@ -210,6 +436,218 @@ def validate_ticker(ticker: str) -> Tuple[bool, str]:
         return False, f"Cannot validate {ticker}: {str(e)[:50]}"
 
 
+def analyze_portfolio_performance(portfolio_weights: pd.Series, returns_data: pd.DataFrame) -> str:
+    """
+    Comprehensive portfolio performance analysis with real metrics
+    Shows returns, risk, composition, and performance breakdown
+    """
+    response = "## 📊 Portfolio Performance Analysis\n\n"
+    response += f"**Analysis Timestamp**: {get_data_timestamp()}\n\n"
+    
+    try:
+        portfolio_stocks = portfolio_weights.index.tolist()
+        portfolio_returns = returns_data[portfolio_stocks].dropna()
+        
+        if len(portfolio_returns) < 5:
+            return response + "⚠️ **Insufficient Data**: Need at least 5 trading days of price history.\n"
+        
+        # === PORTFOLIO METRICS ===
+        weighted_returns = (portfolio_returns * portfolio_weights).sum(axis=1)
+        
+        # Calculate key metrics
+        annual_return = weighted_returns.mean() * 252
+        annual_vol = weighted_returns.std() * np.sqrt(252)
+        sharpe_ratio = (annual_return - 0.03) / annual_vol if annual_vol > 0 else 0
+        
+        # Period returns
+        total_return = (1 + weighted_returns).prod() - 1
+        ytd_date = pd.Timestamp(datetime.now().year, 1, 1)
+        ytd_returns = weighted_returns[weighted_returns.index >= ytd_date]
+        ytd_return = (1 + ytd_returns).prod() - 1 if len(ytd_returns) > 0 else 0
+        
+        # Drawdown analysis
+        cumulative_returns = (1 + weighted_returns).cumprod()
+        running_max = cumulative_returns.expanding().max()
+        drawdown = (cumulative_returns - running_max) / running_max
+        max_drawdown = drawdown.min()
+        current_drawdown = drawdown.iloc[-1]
+        
+        # Response formatting
+        response += "### 📈 Portfolio Metrics\n\n"
+        response += f"**Current Composition**: {len(portfolio_stocks)} holdings ({', '.join(portfolio_stocks[:5])}{'...' if len(portfolio_stocks) > 5 else ''})\n\n"
+        
+        response += "**Returns**:\n"
+        response += f"• **Annualized Return**: {annual_return*100:+.2f}%\n"
+        response += f"• **Period Total Return**: {total_return*100:+.2f}%\n"
+        if len(ytd_returns) > 0:
+            response += f"• **YTD Return**: {ytd_return*100:+.2f}%\n"
+        response += "\n"
+        
+        response += "**Risk Metrics**:\n"
+        response += f"• **Annualized Volatility**: {annual_vol*100:.2f}%\n"
+        response += f"• **Sharpe Ratio**: {sharpe_ratio:.3f}"
+        if sharpe_ratio > 1:
+            response += " ✓ (Good risk-adjusted return)\n"
+        elif sharpe_ratio > 0:
+            response += " (Positive but modest)\n"
+        else:
+            response += " ⚠️ (Negative - underperforming risk-free rate)\n"
+        
+        response += f"• **Maximum Drawdown**: {max_drawdown*100:.2f}%\n"
+        response += f"• **Current Drawdown**: {current_drawdown*100:.2f}%\n"
+        response += "\n"
+        
+        # === PORTFOLIO COMPOSITION ===
+        response += "### 💼 Portfolio Composition\n\n"
+        sorted_weights = portfolio_weights.sort_values(ascending=False)
+        
+        for i, (ticker, weight) in enumerate(sorted_weights.items(), 1):
+            response += f"{i}. **{ticker}**: {weight*100:.1f}%\n"
+        
+        response += "\n"
+        
+        # === INDIVIDUAL STOCK PERFORMANCE ===
+        response += "### 📍 Individual Stock Performance\n\n"
+        
+        stock_returns = {}
+        stock_contribution = {}
+        
+        for ticker in portfolio_stocks:
+            if ticker in portfolio_returns.columns:
+                ticker_returns = portfolio_returns[ticker]
+                annual_ticker_return = ticker_returns.mean() * 252
+                stock_returns[ticker] = annual_ticker_return
+                stock_contribution[ticker] = annual_ticker_return * portfolio_weights[ticker]
+        
+        # Sort by contribution
+        sorted_contrib = sorted(stock_contribution.items(), key=lambda x: x[1], reverse=True)
+        
+        response += "**Return Contribution (Annualized)**:\n"
+        for ticker, contrib in sorted_contrib[:5]:
+            emoji = '📈' if contrib > 0 else '📉'
+            response += f"• {emoji} **{ticker}**: {contrib*100:+.2f}% (weight: {portfolio_weights[ticker]*100:.1f}%)\n"
+        
+        if len(sorted_contrib) > 5:
+            response += f"• ... and {len(sorted_contrib) - 5} more\n"
+        
+        response += "\n"
+        
+        # === CORRELATION & DIVERSIFICATION ===
+        corr_matrix = portfolio_returns.corr()
+        avg_corr = corr_matrix.values[np.triu_indices_from(corr_matrix.values, k=1)].mean()
+        
+        response += "### 🔄 Diversification Quality\n\n"
+        response += f"**Average Pairwise Correlation**: {avg_corr:.3f}\n"
+        
+        if avg_corr > 0.7:
+            response += "⚠️  **High Correlation** - Portfolio stocks move together\n"
+            response += "• Limited diversification benefits\n"
+            response += "• Consider adding uncorrelated assets\n"
+        elif avg_corr > 0.4:
+            response += "🟡 **Moderate Correlation** - Reasonable diversification\n"
+            response += "• Some stocks provide independent movements\n"
+            response += "• Balanced correlation structure\n"
+        else:
+            response += "✓ **Low Correlation** - Good diversification\n"
+            response += "• Stocks move somewhat independently\n"
+            response += "• Better risk reduction across positions\n"
+        
+        response += "\n"
+        
+        # === VOLATILITY BREAKDOWN ===
+        response += "### 📊 Risk Decomposition\n\n"
+        
+        # Calculate individual volatilities
+        individual_vols = {}
+        for ticker in portfolio_stocks:
+            individual_vols[ticker] = portfolio_returns[ticker].std() * np.sqrt(252)
+        
+        best_vol = min(individual_vols.items(), key=lambda x: x[1])
+        worst_vol = max(individual_vols.items(), key=lambda x: x[1])
+        
+        response += f"**Individual Stock Volatilities**:\n"
+        response += f"• **Least volatile**: {best_vol[0]} ({best_vol[1]*100:.1f}%)\n"
+        response += f"• **Most volatile**: {worst_vol[0]} ({worst_vol[1]*100:.1f}%)\n"
+        response += f"• **Portfolio volatility** ({annual_vol*100:.1f}%) is lower than most individual stocks due to diversification\n"
+        
+        response += "\n"
+        
+        # === BENCHMARK COMPARISON ===
+        try:
+            spy_data = yf.download('SPY', period='1y', progress=False, auto_adjust=False)
+            if not spy_data.empty:
+                if isinstance(spy_data.columns, pd.MultiIndex):
+                    spy_returns = spy_data['Adj Close', 'SPY'].pct_change().dropna()
+                else:
+                    spy_returns = spy_data['Adj Close'].pct_change().dropna()
+                
+                # Align with portfolio returns
+                common_idx = weighted_returns.index.intersection(spy_returns.index)
+                if len(common_idx) > 20:
+                    portfolio_ret_aligned = weighted_returns[common_idx]
+                    spy_ret_aligned = spy_returns[common_idx]
+                    
+                    port_annual = portfolio_ret_aligned.mean() * 252
+                    spy_annual = spy_ret_aligned.mean() * 252
+                    
+                    port_vol = portfolio_ret_aligned.std() * np.sqrt(252)
+                    spy_vol = spy_ret_aligned.std() * np.sqrt(252)
+                    
+                    response += "### 📊 vs Benchmark (SPY - S&P 500)\n\n"
+                    response += f"**Performance Comparison**:\n"
+                    response += f"• **Portfolio Return**: {port_annual*100:.2f}% (vol: {port_vol*100:.2f}%)\n"
+                    response += f"• **SPY Return**: {spy_annual*100:.2f}% (vol: {spy_vol*100:.2f}%)\n"
+                    response += f"• **Excess Return**: {(port_annual - spy_annual)*100:+.2f}pp\n"
+                    
+                    if port_vol < spy_vol:
+                        response += f"• **Risk Reduction**: {(1 - port_vol/spy_vol)*100:.1f}% lower volatility than SPY\n"
+                    elif port_vol > spy_vol:
+                        response += f"• **Higher Risk**: {(port_vol/spy_vol - 1)*100:.1f}% higher volatility than SPY\n"
+                    
+                    response += "\n"
+        except:
+            pass  # Benchmark comparison optional
+        
+        # === INVESTMENT INSIGHTS ===
+        response += "### 💡 Key Insights\n\n"
+        
+        if annual_return < 0.05:
+            response += "⚠️ **Low Expected Returns**: Annual return below 5% may not outpace inflation\n"
+        elif annual_return > 0.20:
+            response += "🚀 **Strong Expected Returns**: Annual return above 20% is excellent\n"
+        else:
+            response += f"💰 **Healthy Returns**: Annual return of {annual_return*100:.1f}% is reasonable\n"
+        
+        if annual_vol < 0.10:
+            response += "✓ **Conservative Risk**: Low volatility suitable for risk-averse investors\n"
+        elif annual_vol > 0.30:
+            response += "⚠️ **High Risk**: Volatility above 30% requires conviction\n"
+        else:
+            response += f"🟡 **Moderate Risk**: {annual_vol*100:.1f}% volatility is balanced\n"
+        
+        if sharpe_ratio > 1:
+            response += "✓ **Efficient**: Good return per unit of risk taken\n"
+        elif sharpe_ratio < 0:
+            response += "⚠️ **Inefficient**: Returns don't justify risk - consider alternative portfolio\n"
+        
+        # Concentration check
+        top_weight = sorted_weights.iloc[0]
+        if top_weight > 0.40:
+            response += f"🔴 **Concentration Risk**: Top position is {top_weight*100:.0f}% - consider diversifying\n"
+        elif top_weight > 0.25:
+            response += f"🟡 **Moderate Concentration**: Top position at {top_weight*100:.0f}%\n"
+        else:
+            response += f"✓ **Well Balanced**: Largest position only {top_weight*100:.0f}%\n"
+        
+        response += "\n---\n"
+        response += INVESTMENT_DISCLAIMER + "\n"
+        
+    except Exception as e:
+        response += f"⚠️ **Error**: Could not complete analysis: {str(e)[:100]}\n"
+    
+    return response
+
+
 def classify_question_type(question: str) -> Dict[str, Any]:
     """
     Classify user question into categories for intelligent routing
@@ -230,7 +668,7 @@ def classify_question_type(question: str) -> Dict[str, Any]:
         'confidence': 0.5
     }
     
-    # Comparative/ranking questions (highest priority - very specific pattern)
+    # PRIORITY 1: Comparative/ranking questions (highest priority - very specific pattern)
     comparative_patterns = ['which stock', 'what stock', 'best stock', 'worst stock', 
                            'top performer', 'best performer', 'worst performer',
                            'most gain', 'biggest gain', 'highest return', 'lowest return',
@@ -243,71 +681,120 @@ def classify_question_type(question: str) -> Dict[str, Any]:
         # Check if timeframe specified
         if any(word in question_lower for word in ['today', 'this week', 'this month', 'this year']):
             classification['keywords'].append('timeframe_specified')
+        return classification  # Early return for comparative questions
     
-    # Educational/definition questions
-    education_keywords = ['what is', 'what are', 'explain', 'how does', 'how do', 'define',
-                         'definition of', 'meaning of', 'tell me about', 'teach me']
-    if any(k in question_lower for k in education_keywords) and classification['type'] == 'general':
-        classification['type'] = 'education'
-        classification['confidence'] = 0.9
+    # PRIORITY 2: Portfolio-specific (VERY HIGH PRIORITY - must come BEFORE education!)
+    # This catches questions about user's own holdings/portfolio
+    portfolio_keywords = ['my portfolio', 'our portfolio', 'current holdings', 'rebalance', 'my positions',
+                         'my investments', 'my stocks', 'portfolio performance', 'portfolio doing',
+                         'our holdings', 'our positions', 'our stocks',
+                         'how is my', 'how is the portfolio', 'how is our portfolio',
+                         'our current portfolio', 'my current portfolio',
+                         'portfolio return', 'portfolio risk', 'portfolio volatility',
+                         'portfolio allocation', 'portfolio composition',
+                         'what is the volatility of our', 'what is the return of my',
+                         'what is the risk of our', 'current portfolio']
+    if any(k in question_lower for k in portfolio_keywords):
+        classification['type'] = 'portfolio'
+        classification['confidence'] = 0.95
+        return classification  # Early return for portfolio questions
     
-    # Macro keywords (highest priority for investing - specific topics)
+    # PRIORITY 3: Macro keywords (HIGH PRIORITY - domain-specific, should override generic education patterns)
     macro_keywords = ['fed', 'federal reserve', 'interest rate', 'inflation', 'cpi',
                      'unemployment', 'gdp', 'recession', 'economy', 'economic',
                      'monetary policy', 'fiscal policy', 'treasury', 'bond yield', 'yield curve',
-                     'geopolitic', 'trade war', 'tariff', 'dollar strength', 'currency']
-    if any(k in question_lower for k in macro_keywords) and classification['type'] == 'general':
+                     'geopolitic', 'trade war', 'tariff', 'dollar strength', 'currency',
+                     'central bank', 'economic cycle', 'market cycle', 'business cycle']
+    if any(k in question_lower for k in macro_keywords):
         classification['type'] = 'macro'
         classification['keywords'] = [k for k in macro_keywords if k in question_lower]
-        classification['confidence'] = 0.85
+        classification['confidence'] = 0.88
+        return classification  # Early return for macro questions
     
-    # Market-level keywords (high priority - before sector)
+    # PRIORITY 4: Market-level keywords (high priority - before sector)
     market_keywords = ['overall market', 'market outlook', 'market condition', 'sp500', 's&p 500', 
                        'dow jones', 'nasdaq', 'market index', 'broad market', 'equities overall',
-                       'stock market', 'market trend', 'market is', 'are stocks']
-    if any(k in question_lower for k in market_keywords) and classification['type'] not in ['macro', 'education']:
+                       'stock market', 'market trend', 'market is', 'are stocks', 'market data',
+                       'market analysis', 'vix', 'volatility index', 'market regime']
+    if any(k in question_lower for k in market_keywords):
         classification['type'] = 'market'
         classification['confidence'] = 0.85
+        return classification  # Early return for market questions
     
-    # Sector/Industry keywords (medium priority)
-    sectors = ['technology sector', 'tech sector', 'finance', 'financial sector', 'healthcare sector',
-               'health sector', 'energy sector', 'utilities sector', 'real estate sector', 
-               'consumer sector', 'industrial sector', 'materials sector', 'communication sector',
-               'semiconductor industry', 'software industry', 'banking sector', 'insurance sector',
-               'pharma', 'biotech', 'retail sector', 'automotive sector']
+    # PRIORITY 5: Sector/Industry keywords with more patterns
+    sector_patterns = [
+        ('technology', ['tech', 'technology sector', 'tech sector', 'software', 'semiconductor', 'semi']),
+        ('finance', ['finance', 'financial sector', 'banking', 'bank', 'insurance']),
+        ('healthcare', ['healthcare', 'health sector', 'pharma', 'pharmaceutical', 'biotech', 'bio']),
+        ('energy', ['energy sector', 'energy', 'oil', 'gas']),
+        ('consumer', ['consumer', 'consumer sector', 'retail', 'discretionary']),
+        ('industrial', ['industrial', 'industrial sector', 'manufacturing']),
+        ('utilities', ['utilities', 'utility sector']),
+        ('real_estate', ['real estate', 'reits', 'reit']),
+        ('materials', ['materials', 'materials sector']),
+        ('communications', ['communications', 'telecom', 'media', 'tmt']),
+        ('staples', ['consumer staples', 'staples']),
+    ]
     
-    detected_sectors = [s for s in sectors if s in question_lower]
-    if detected_sectors and classification['type'] == 'general':
+    detected_sectors = []
+    for sector_name, patterns in sector_patterns:
+        if any(p in question_lower for p in patterns):
+            detected_sectors.append(sector_name)
+    
+    if detected_sectors:
         classification['type'] = 'sector'
         classification['entities'].extend(detected_sectors)
-        classification['confidence'] = 0.8
+        classification['confidence'] = 0.82
+        return classification  # Early return for sector questions
     
-    # Portfolio-specific (clear signals)
-    portfolio_keywords = ['my portfolio', 'current holdings', 'rebalance', 'my positions',
-                         'my investments', 'my stocks', 'portfolio performance']
-    if any(k in question_lower for k in portfolio_keywords) and classification['type'] == 'general':
-        classification['type'] = 'portfolio'
-        classification['confidence'] = 0.95
+    # Sector growth analysis patterns
+    sector_growth_keywords = ['sector growth', 'industry growth', 'growth outlook', 'sector trend',
+                             'industry trend', 'sector performance', 'industry analysis',
+                             'sector analysis', 'which sector', 'best performing sector',
+                             'sectors performing', 'performing well sector', 'sector performing']
+    if any(k in question_lower for k in sector_growth_keywords):
+        classification['type'] = 'sector'
+        classification['confidence'] = 0.85
+        classification['intent'] = 'forecast'
+        return classification  # Early return for sector growth questions
     
-    # Extract potential tickers (lowest priority for classification)
+    # Catch remaining sector questions that have "sector" or "industry" keyword + performance words
+    performance_words = ['performing', 'performance', 'doing', 'best', 'worst', 'top', 'bottom']
+    if (('sector' in question_lower or 'industry' in question_lower) and 
+        any(w in question_lower for w in performance_words)):
+        classification['type'] = 'sector'
+        classification['confidence'] = 0.80
+        classification['intent'] = 'analysis'
+        return classification  # Early return for sector questions
+    
+    # PRIORITY 6: Extract potential tickers (HIGH PRIORITY - specific investment)
     tickers = extract_ticker_from_question(question)
     if tickers:
         classification['entities'].append(tickers)
-        # Only classify as stock if no other strong signals
-        if classification['type'] == 'general':
-            classification['type'] = 'stock'
-            classification['confidence'] = 0.75
+        classification['type'] = 'stock'
+        classification['confidence'] = 0.80
+        return classification  # Early return for stock questions
     
-    # Intent classification
+    # PRIORITY 7: Educational/definition questions (LOWEST PRIORITY - generic patterns, only if nothing else matched)
+    education_keywords = ['what is', 'what are', 'explain', 'how does', 'how do', 'define',
+                         'definition of', 'meaning of', 'tell me about', 'teach me',
+                         'interpret', 'what does', 'how to interpret', 'industry overview',
+                         'sector overview', 'understand', 'concept', 'terminology']
+    if any(k in question_lower for k in education_keywords):
+        classification['type'] = 'education'
+        classification['confidence'] = 0.85
+        return classification  # Early return for education questions
+    
+    # Intent classification (applies to all types)
     if any(word in question_lower for word in ['compare', 'versus', 'vs', 'better than', 'or which']):
         classification['intent'] = 'comparison'
-    elif any(word in question_lower for word in ['forecast', 'predict', 'future', 'outlook', 'expect', 'will be']):
+    elif any(word in question_lower for word in ['forecast', 'predict', 'future', 'outlook', 'expect', 'will be', 'trend']):
         classification['intent'] = 'forecast'
     elif any(word in question_lower for word in ['risk', 'danger', 'concern', 'worry', 'safe', 'dangerous', 'volatile']):
         classification['intent'] = 'risk'
     elif any(word in question_lower for word in ['opportunity', 'undervalue', 'cheap', 'bargain', 'buy signal']):
         classification['intent'] = 'opportunity'
-    elif any(word in question_lower for word in ['why', 'how come', 'reason', 'cause', 'explain why']):
+    elif any(word in question_lower for word in ['explain', 'what is', 'how does', 'interpret']):
         classification['intent'] = 'explanation'
     
     return classification
@@ -412,20 +899,39 @@ def analyze_stock_comparison(question: str, portfolio_stocks: Optional[List[str]
         response += f"### 🏆 Top Performers ({timeframe})\n\n"
         top_n = min(5, len(sorted_perf))
         for i, (ticker, ret) in enumerate(sorted_perf[:top_n], 1):
-            emoji = '🥇' if i == 1 else '🥈' if i == 2 else '🥉' if i == 3 else '  '
-            price_info = ""
+            medal = '🥇' if i == 1 else '🥈' if i == 2 else '🥉' if i == 3 else '  '
+            price_str = ""
             if ticker in live_prices and 'price' in live_prices[ticker]:
-                price_info = f" | ${live_prices[ticker]['price']:.2f}"
-            response += f"{emoji} **{ticker}**: {ret*100:+.2f}%{price_info}\n"
+                price = live_prices[ticker]['price']
+                price_str = f"${price:.2f}"
+            
+            # Simple format: avoid markdown special characters
+            ret_pct = f"{ret*100:+.2f}%"
+            if medal.strip():  # If medal exists (1st, 2nd, 3rd)
+                line = f"{medal} {ticker}: {ret_pct}"
+            else:
+                line = f"    {ticker}: {ret_pct}"
+            
+            if price_str:
+                line += f"  |  {price_str}"
+            
+            response += f"{line}\n"
         
         # Bottom performers with real-time prices
         response += f"\n### 📉 Bottom Performers ({timeframe})\n\n"
         bottom_n = min(5, len(sorted_perf))
         for i, (ticker, ret) in enumerate(sorted_perf[-bottom_n:][::-1], 1):
-            price_info = ""
+            price_str = ""
             if ticker in live_prices and 'price' in live_prices[ticker]:
-                price_info = f" | ${live_prices[ticker]['price']:.2f}"
-            response += f"  **{ticker}**: {ret*100:+.2f}%{price_info}\n"
+                price = live_prices[ticker]['price']
+                price_str = f"${price:.2f}"
+            
+            ret_pct = f"{ret*100:+.2f}%"
+            line = f"    {ticker}: {ret_pct}"
+            if price_str:
+                line += f"  |  {price_str}"
+            
+            response += f"{line}\n"
         
         # Summary statistics
         returns = list(performance.values())
@@ -630,6 +1136,7 @@ def analyze_sector_industry(sector_name: str, portfolio_weights: Optional[pd.Ser
         'technology': ('XLK', 'Technology'),
         'software': ('XLK', 'Technology'),
         'semiconductor': ('XLK', 'Technology/Semiconductors'),
+        'semiconductor industry': ('XLK', 'Technology/Semiconductors'),
         'finance': ('XLF', 'Financials'),
         'financial': ('XLF', 'Financials'),
         'banking': ('XLF', 'Financials/Banking'),
@@ -657,7 +1164,7 @@ def analyze_sector_industry(sector_name: str, portfolio_weights: Optional[pd.Ser
     
     if not etf:
         response += f"⚠️ **Cannot Map Sector**: '{sector_name}' is not recognized.\n\n"
-        response += "**Supported sectors**: technology, finance, healthcare, energy, consumer, industrial, materials, utilities, real estate, communication\n"
+        response += "**Supported sectors**: technology, semiconductor, finance, healthcare, pharma, energy, consumer, industrial, staples, utilities, real estate, materials, communication\n"
         return response
     
     try:
@@ -774,7 +1281,7 @@ def analyze_macro_environment(keywords: List[str]) -> str:
             response += f"• 6-month change: {current_10y - prev_10y:+.2f}%\n"
             response += f"• Trend: {'Rising' if current_10y > prev_10y else 'Falling' if current_10y < prev_10y else 'Stable'}\n\n"
             
-            # Contextual interpretation (clearly labeled)
+            # Contextual interpretation
             response += "### Interest Rate Context (Interpretation)\n\n"
             
             if current_10y > 4.5:
@@ -823,6 +1330,295 @@ def analyze_macro_environment(keywords: List[str]) -> str:
     response += "• Low rates environment → Growth stocks may outperform\n"
     response += "• Recession concerns → Defensive sectors (healthcare, utilities, staples)\n"
     response += "• Expansion phase → Cyclicals (industrials, discretionary, financials)\n\n"
+    
+    return response
+
+
+def generate_llm_explanation(metric_name: str, metric_value: float, context: str = "") -> str:
+    """
+    Generate LLM-based natural language explanation for key metrics
+    
+    Parameters:
+    -----------
+    metric_name : str
+        Name of metric (sharpe_ratio, volatility, return, drawdown, etc)
+    metric_value : float
+        Numerical value of metric
+    context : str
+        Additional context for explanation
+        
+    Returns:
+    --------
+    explanation : str
+        Natural language explanation of what this metric means
+    """
+    
+    # Define narrative explanations for key metrics
+    explanations = {
+        'sharpe_ratio': {
+            'above_1.5': f"**Excellent Risk-Adjusted Performance**: Sharpe of {metric_value:.2f} suggests your portfolio earns {metric_value:.1f} units of excess return per unit of risk taken. This is in professional asset manager territory—typically only top 10-20% of portfolios achieve this. You're being well-compensated for the volatility you endure.",
+            'above_1': f"**Good Risk-Adjusted Returns**: Sharpe of {metric_value:.2f} indicates solid efficiency. For every unit of risk (volatility) you accept, you're earning {metric_value:.1f} units of excess return above the risk-free rate. This is respectable for individual portfolios.",
+            'above_0.5': f"**Moderate Risk-Adjusted Returns**: Sharpe of {metric_value:.2f} means returns exist but risk-adjusted efficiency is mediocre. Consider whether your portfolio construction is adding value or just taking unnecessary volatility.",
+            'below_0.5': f"**Poor Risk-Adjusted Returns**: Sharpe of {metric_value:.2f} suggests portfolio returns barely compensate for risk taken. You may want to evaluate whether individual positions or overall allocation strategy needs refinement.",
+        },
+        'volatility': {
+            'high': f"**High Volatility ({metric_value*100:.1f}%)**: Your portfolio experiences significant daily swings. In a 2-sigma down day (~2% of) you'd lose 2-3x that amount. Consider: (1) Your emotional tolerance for 20-40% drawdowns, (2) Whether diversification is adequate, (3) If concentration in a few names is driving this.",
+            'moderate': f"**Moderate Volatility ({metric_value*100:.1f}%)**: Typical portfolio volatility. Expect 15-20% annual standard deviation. You'll see meaningful months (+5-10%) and down months (-5-10%). This is the baseline risk you must accept for long-term equity returns.",
+            'low': f"**Low Volatility ({metric_value*100:.1f}%)**: Your portfolio is smooth. This suggests strong diversification, significant bond allocation, or concentration in stable dividend stocks. Good for sleep-at-night investing, but watch for opportunity cost vs equities.",
+        },
+        'drawdown': {
+            'severe': f"**Severe Drawdown ({metric_value*100:.1f}%)**: Portfolio has experienced peak-to-trough decline of 30-50%+. This is normal for equity portfolios during bear markets (2008, 2020, 2022). Question: Can you stay invested during these? If not, portfolio is too aggressive.",
+            'significant': f"**Significant Drawdown ({metric_value*100:.1f}%)**: Peak-to-trough losses of 15-30%. Expect this every 5-10 years. Your portfolio likely has 60-70% equities. Verify your risk tolerance matches this.",
+            'moderate': f"**Moderate Drawdown ({metric_value*100:.1f}%)**: Maximum observed loss is 5-15%. Suggests balanced portfolio (40-60% equities) or very strong diversification. Low probability of panic selling at these levels.",
+        },
+        'return': {
+            'high': f"**Strong Returns ({metric_value*100:+.1f}%)**: Annual return significantly above inflation (2-3%). If annualized, this 8-15%+ implies either (1) excellent security selection, (2) favorable market conditions, or (3) luck. Be cautious extrapolating.",
+            'moderate': f"**Solid Returns ({metric_value*100:+.1f}%)**: Aligned with long-term equity average (10% annualized). Shows market-like performance. Question: Are you being compensated with risk-adjusted returns (Sharpe)?",
+            'below_market': f"**Below-Market Returns ({metric_value*100:+.1f}%)**: Lagging S&P 500 averages. Investigate: (1) Is this temporary underperformance? (2) Are fees/taxes/trading costs drag too high? (3) Should positions be reweighted?",
+        },
+        'correlation': {
+            'high': f"**High Co-Movement ({metric_value:.2f})**: Holdings move together frequently. This reduces diversification benefit—in a market crash, everything falls simultaneously. Diversification isn't working optimally.",
+            'moderate': f"**Moderate Diversification ({metric_value:.2f})**: Some holdings are independent, some correlated. Add uncorrelated assets (bonds, commodities, international) to improve cross-protection.",
+            'low': f"**Good Diversification ({metric_value:.2f})**: Holdings move relatively independently. Your portfolio has natural hedges. During market downturns, some positions likely outperform others.",
+        },
+    }
+    
+    # Select appropriate explanation based on metric and value
+    if metric_name == 'sharpe_ratio':
+        if metric_value >= 1.5:
+            key = 'above_1.5'
+        elif metric_value >= 1:
+            key = 'above_1'
+        elif metric_value >= 0.5:
+            key = 'above_0.5'
+        else:
+            key = 'below_0.5'
+    elif metric_name == 'volatility':
+        if metric_value >= 0.30:
+            key = 'high'
+        elif metric_value >= 0.15:
+            key = 'moderate'
+        else:
+            key = 'low'
+    elif metric_name == 'drawdown':
+        if metric_value < -0.30:
+            key = 'severe'
+        elif metric_value < -0.15:
+            key = 'significant'
+        else:
+            key = 'moderate'
+    elif metric_name == 'return':
+        if metric_value >= 0.12:
+            key = 'high'
+        elif metric_value >= 0.08:
+            key = 'moderate'
+        else:
+            key = 'below_market'
+    elif metric_name == 'correlation':
+        if metric_value >= 0.7:
+            key = 'high'
+        elif metric_value >= 0.4:
+            key = 'moderate'
+        else:
+            key = 'low'
+    else:
+        return f"Metric value: {metric_value}"
+    
+    return explanations.get(metric_name, {}).get(key, "") if metric_name in explanations else ""
+
+
+def analyze_portfolio_performance(portfolio_weights: pd.Series, returns_data: pd.DataFrame) -> str:
+    """
+    Comprehensive portfolio performance analysis
+    Shows returns, risk, diversification, and key metrics
+    """
+    response = "## 💼 Your Portfolio Performance\n\n"
+    
+    try:
+        # Get portfolio stocks
+        portfolio_stocks = portfolio_weights.index.tolist()
+        portfolio_returns = returns_data[portfolio_stocks].dropna()
+        
+        if len(portfolio_returns) < 10:
+            return response + "⚠️ **Insufficient Data**: Need at least 10 days of historical data for analysis.\n"
+        
+        # Calculate portfolio metrics
+        portfolio_daily_returns = (portfolio_returns * portfolio_weights).sum(axis=1)
+        portfolio_annual_return = portfolio_daily_returns.mean() * 252
+        portfolio_volatility = portfolio_daily_returns.std() * np.sqrt(252)
+        portfolio_sharpe = (portfolio_annual_return - 0.03) / portfolio_volatility if portfolio_volatility > 0 else 0
+        
+        # Cumulative return
+        cumulative_return = (1 + portfolio_daily_returns).prod() - 1
+        
+        # Drawdown
+        cumulative_values = (1 + portfolio_daily_returns).cumprod()
+        running_max = cumulative_values.expanding().max()
+        drawdown = (cumulative_values - running_max) / running_max
+        max_drawdown = drawdown.min()
+        current_drawdown = drawdown.iloc[-1]
+        
+        # === PERFORMANCE SUMMARY ===
+        response += "### 📊 Performance Metrics\n\n"
+        response += f"**Returns**\n"
+        response += f"• **Annualized Return**: {portfolio_annual_return*100:.2f}%\n"
+        response += generate_llm_explanation('return', portfolio_annual_return) + "\n\n"
+        response += f"• **Total Return**: {cumulative_return*100:.2f}%\n"
+        response += f"• **Daily Avg Return**: {portfolio_daily_returns.mean()*100:.3f}%\n\n"
+        
+        response += f"**Risk Metrics**\n"
+        response += f"• **Volatility (Annual)**: {portfolio_volatility*100:.2f}%\n"
+        response += generate_llm_explanation('volatility', portfolio_volatility) + "\n\n"
+        response += f"• **Sharpe Ratio**: {portfolio_sharpe:.3f}\n"
+        response += generate_llm_explanation('sharpe_ratio', portfolio_sharpe) + "\n\n"
+        response += f"• **Max Drawdown**: {max_drawdown*100:.2f}%\n"
+        response += generate_llm_explanation('drawdown', max_drawdown) + "\n\n"
+        response += f"• **Current Drawdown**: {current_drawdown*100:.2f}%\n"
+        
+        # Return per unit of risk
+        if portfolio_volatility > 0:
+            return_per_risk = portfolio_annual_return / portfolio_volatility
+            response += f"**Return per Unit of Risk**: {return_per_risk:.3f}\n"
+            if return_per_risk > 1:
+                response += "✓ Good risk-adjusted returns\n\n"
+            elif return_per_risk > 0.5:
+                response += "🟡 Moderate risk-adjusted returns\n\n"
+            else:
+                response += "⚠️ Low risk-adjusted returns\n\n"
+        
+        # === PORTFOLIO COMPOSITION ===
+        response += "### 📈 Portfolio Composition\n\n"
+        response += f"**Top Holdings**\n"
+        top_holdings = portfolio_weights.nlargest(5)
+        for ticker, weight in top_holdings.items():
+            response += f"• **{ticker}**: {weight*100:.1f}%\n"
+        
+        response += f"\n**Holdings Count**: {len(portfolio_weights)}\n"
+        response += f"**Concentration** (top 3): {top_holdings.sum()*100:.1f}%\n\n"
+        
+        # === INDIVIDUAL STOCK PERFORMANCE ===
+        response += "### 📊 Individual Stock Performance\n\n"
+        
+        stock_returns = pd.Series({
+            stock: (returns_data[stock].dropna().mean() * 252) for stock in portfolio_stocks
+        })
+        stock_returns = stock_returns.sort_values(ascending=False)
+        
+        response += f"**Best Performers**\n"
+        for ticker, ret in stock_returns.head(3).items():
+            weight = portfolio_weights.get(ticker, 0)
+            contribution = ret * weight
+            response += f"• **{ticker}** ({weight*100:.1f}%): {ret*100:+.2f}% annual (contributes {contribution*100:+.2f}pp)\n"
+        
+        response += f"\n**Worst Performers**\n"
+        for ticker, ret in stock_returns.tail(3).items():
+            weight = portfolio_weights.get(ticker, 0)
+            contribution = ret * weight
+            response += f"• **{ticker}** ({weight*100:.1f}%): {ret*100:+.2f}% annual (contributes {contribution*100:+.2f}pp)\n"
+        
+        # === DIVERSIFICATION ===
+        response += "\n### 🔄 Diversification Analysis\n\n"
+        
+        corr_matrix = portfolio_returns.corr()
+        avg_correlation = corr_matrix.values[np.triu_indices_from(corr_matrix.values, k=1)].mean()
+        
+        response += f"**Average Pairwise Correlation**: {avg_correlation:.3f}\n"
+        response += generate_llm_explanation('correlation', avg_correlation) + "\n\n"
+        
+        # === BENCHMARK COMPARISON ===
+        response += "### 📊 vs. S&P 500 (SPY)\n\n"
+        
+        try:
+            spy_data = yf.download('SPY', period='2y', progress=False, auto_adjust=False)
+            if not spy_data.empty:
+                if isinstance(spy_data.columns, pd.MultiIndex):
+                    spy_returns = spy_data['Adj Close', 'SPY'].pct_change().dropna()
+                else:
+                    spy_returns = spy_data['Adj Close'].pct_change().dropna()
+                
+                # Align dates
+                common_idx = portfolio_daily_returns.index.intersection(spy_returns.index)
+                if len(common_idx) > 10:
+                    spy_annual = spy_returns[common_idx].mean() * 252
+                    spy_vol = spy_returns[common_idx].std() * np.sqrt(252)
+                    spy_sharpe = (spy_annual - 0.03) / spy_vol if spy_vol > 0 else 0
+                    
+                    response += f"**S&P 500 Metrics** (same period)\n"
+                    response += f"• **Annual Return**: {spy_annual*100:.2f}%\n"
+                    response += f"• **Volatility**: {spy_vol*100:.2f}%\n"
+                    response += f"• **Sharpe Ratio**: {spy_sharpe:.3f}\n\n"
+                    
+                    response += f"**Relative Performance**\n"
+                    response += f"• **Alpha**: {(portfolio_annual_return - spy_annual)*100:+.2f}pp\n"
+                    response += f"• **Beta**: {portfolio_volatility/spy_vol:.2f}x\n"
+                    
+                    if portfolio_annual_return > spy_annual:
+                        response += f"• ✓ Outperforming SPY by {(portfolio_annual_return - spy_annual)*100:.2f}pp\n"
+                    else:
+                        response += f"• ⚠️ Underperforming SPY by {(spy_annual - portfolio_annual_return)*100:.2f}pp\n"
+        except:
+            response += "⚠️ _Benchmark comparison data unavailable_\n"
+        
+        response += "\n"
+        
+        # === KEY INSIGHTS ===
+        response += "### 💡 Key Insights & LLM Analysis\n\n"
+        
+        insights = []
+        
+        if portfolio_sharpe > 1.0:
+            insights.append(f"✓ **Strong Risk-Adjusted Returns**: (Sharpe: {portfolio_sharpe:.2f}) Your portfolio is being well-rewarded for the risk taken.")
+        elif portfolio_sharpe > 0.5:
+            insights.append(f"🟡 **Moderate Risk-Adjusted Returns**: (Sharpe: {portfolio_sharpe:.2f}) Returns exist but could be improved through better positioning.")
+        else:
+            insights.append(f"⚠️ **Weak Risk-Adjusted Returns**: (Sharpe: {portfolio_sharpe:.2f}) Portfolio isn't adequately compensating for risk. Consider rebalancing.")
+        
+        if portfolio_volatility < 0.15:
+            insights.append("✓ **Conservative Volatility**: Low swings suitable for risk-averse investors. Downside: May miss upside moves.")
+        elif portfolio_volatility > 0.30:
+            insights.append(f"⚠️ **High Volatility**: ({portfolio_volatility*100:.1f}%) Aggressive positioning. Can sustain 20-40% drawdowns. Verify emotional tolerance.")
+        else:
+            insights.append("✓ **Balanced Volatility**: Typical market risk. You'll see +10%/-10% moves regularly.")
+        
+        if max_drawdown > -0.30:
+            insights.append("✓ **Manageable Drawdowns**: Historical losses are moderate. Suggests robust portfolio construction.")
+        elif max_drawdown < -0.50:
+            insights.append(f"⚠️ **Severe Historical Losses**: ({max_drawdown*100:.1f}%) During downturns, portfolio has lost 30-50%+. Normal for equity portfolios but verify you stayed invested.")
+        
+        if current_drawdown < -0.20:
+            insights.append(f"🔴 **Currently in Drawdown**: Portfolio is {current_drawdown*100:.1f}% below all-time highs. Monitor for recovery opportunities or protective measures.")
+        elif current_drawdown > -0.05:
+            insights.append("✓ **Close to All-Time Highs**: Portfolio approaching peak valuation. Consider taking some profits or trimming positions.")
+        
+        if avg_correlation > 0.65:
+            insights.append("⚠️ **Low Diversification**: Holdings move together, reducing risk reduction benefit. Consider adding uncorrelated assets.")
+        elif avg_correlation < 0.35:
+            insights.append("✓ **Strong Diversification**: Holdings move independently. Portfolio has natural hedges for market shocks.")
+        
+        for insight in insights:
+            response += f"• {insight}\n"
+        
+        # LLM-based narrative summary if available
+        if LLM_AVAILABLE:
+            try:
+                response += "\n### 📊 LLM-Generated Portfolio Summary\n\n"
+                portfolio_analysis = f"Portfolio of {len(portfolio_weights)} positions with {portfolio_annual_return*100:.1f}% annual return, {portfolio_volatility*100:.1f}% volatility, and {portfolio_sharpe:.2f} Sharpe ratio."
+                model_predictions = {'current': portfolio_weights.to_dict()}
+                benchmark_comparison = {'alpha': portfolio_annual_return - 0.1, 'beta': portfolio_volatility / 0.18}
+                risk_factors = {'beta_portfolio': portfolio_volatility / 0.18}
+                
+                llm_recommendation = generate_investment_recommendation(
+                    portfolio_analysis, model_predictions, benchmark_comparison, risk_factors,
+                    portfolio_weights, returns_data
+                )
+                response += llm_recommendation
+            except Exception as e:
+                pass  # Fallback to manual insights if LLM fails
+        
+        response += "\n" + INVESTMENT_DISCLAIMER
+        
+    except Exception as e:
+        response += f"⚠️ **Error**: Could not complete analysis: {str(e)[:100]}\n"
     
     return response
 
@@ -993,6 +1789,130 @@ def analyze_investment_decision(user_question: str,
         return response
     
     try:
+        # Fetch comprehensive data FIRST for early scoring
+        ticker_obj = yf.Ticker(candidate_ticker)
+        info = ticker_obj.info
+        hist = ticker_obj.history(period='1y')
+        
+        if not info or len(info) < 5:
+            return response + "⚠️ **Insufficient Data**: Cannot retrieve fundamental data for this ticker.\n"
+        
+        # === EARLY SCORE CALCULATION (before detailed analysis) ===
+        valuation_score = 0
+        valuation_max = 0
+        
+        pe_ratio = info.get('forwardPE') or info.get('trailingPE')
+        pb_ratio = info.get('priceToBook')
+        peg_ratio = info.get('pegRatio')
+        ev_ebitda = info.get('enterpriseToEbitda')
+        
+        if pe_ratio and pe_ratio > 0:
+            valuation_max += 1
+            if pe_ratio < 15:
+                valuation_score += 1
+            elif pe_ratio <= 30:
+                valuation_score += 0.5
+        
+        if pb_ratio and pb_ratio > 0:
+            valuation_max += 1
+            if pb_ratio < 1.5:
+                valuation_score += 1
+            elif pb_ratio <= 5:
+                valuation_score += 0.5
+        
+        roe = info.get('returnOnEquity')
+        roa = info.get('returnOnAssets')
+        profit_margin = info.get('profitMargins')
+        operating_margin = info.get('operatingMargins')
+        revenue_growth = info.get('revenueGrowth')
+        earnings_growth = info.get('earningsGrowth')
+        debt_to_equity = info.get('debtToEquity')
+        
+        verdict_score = 0
+        verdict_max = 0
+        
+        # Valuation portion
+        if valuation_max > 0:
+            verdict_score += (valuation_score / valuation_max) * 25
+            verdict_max += 25
+        
+        # Growth
+        if revenue_growth is not None:
+            verdict_max += 25
+            if revenue_growth > 0.15:
+                verdict_score += 25
+            elif revenue_growth > 0.05:
+                verdict_score += 15
+            elif revenue_growth > 0:
+                verdict_score += 10
+        
+        # Profitability
+        if roe is not None:
+            verdict_max += 25
+            if roe > 0.15:
+                verdict_score += 25
+            elif roe > 0.10:
+                verdict_score += 15
+            elif roe > 0.05:
+                verdict_score += 10
+        
+        # Momentum
+        if not hist.empty and len(hist) >= 63:
+            ret_3m = (hist['Close'].iloc[-1] / hist['Close'].iloc[-63] - 1)
+            verdict_max += 25
+            if ret_3m > 0.10:
+                verdict_score += 25
+            elif ret_3m > 0:
+                verdict_score += 15
+            elif ret_3m > -0.10:
+                verdict_score += 10
+        
+        # Calculate final score and recommendation
+        if verdict_max > 0:
+            final_score = (verdict_score / verdict_max) * 100
+        else:
+            final_score = 50  # Default middle score
+        
+        # Determine recommendation
+        if final_score >= 75:
+            recommendation = "🟢🟢 STRONG BUY"
+            rec_reasoning = "Compelling valuation, strong fundamentals, and positive momentum. High conviction opportunity."
+        elif final_score >= 60:
+            recommendation = "🟢 BUY"
+            rec_reasoning = "Solid fundamentals with attractive entry point. Good risk/reward profile."
+        elif final_score >= 45:
+            recommendation = "🟡 HOLD"
+            rec_reasoning = "Mixed signals. Wait for better entry point, positive catalyst, or clearer trend."
+        elif final_score >= 30:
+            recommendation = "🔴 UNDERPERFORM"
+            rec_reasoning = "Multiple red flags present. Consider reducing exposure or avoiding."
+        else:
+            recommendation = "🔴🔴 SELL"
+            rec_reasoning = "Significant concerns across valuation, fundamentals, and momentum. High risk."
+        
+        # === PROMINENT RECOMMENDATION AT TOP ===
+        response += "---\n\n"
+        response += f"## ✅ RECOMMENDATION\n\n"
+        response += f"**Decision**: {recommendation}\n\n"
+        response += f"**Score**: {final_score:.0f}/100\n\n"
+        response += f"**Why**: {rec_reasoning}\n\n"
+        
+        # Quick decision summary
+        if final_score >= 60:
+            response += "### 💰 Action: Consider as a Buy\n"
+            response += "• Entry point looks reasonable\n"
+            response += "• Risk/reward profile is favorable\n"
+        elif final_score >= 45:
+            response += "### ⏸️ Action: Wait for Clarity\n"
+            response += "• Neither compelling nor concerning at current levels\n"
+            response += "• Monitor for technical breakdown or earnings catalyst\n"
+        else:
+            response += "### ⛔ Action: Avoid or Reduce\n"
+            response += "• Risk outweighs potential reward\n"
+            response += "• Better opportunities likely available elsewhere\n"
+        
+        response += "\n---\n\n"
+        
         # === REAL-TIME PRICE DATA ===
         live_data = get_live_price_data(candidate_ticker)
         
@@ -1002,14 +1922,6 @@ def analyze_investment_decision(user_question: str,
             response += "\n"
         else:
             response += f"⚠️ _Live price data unavailable: {live_data.get('error', 'Unknown')}_\n\n"
-        
-        # Fetch comprehensive data
-        ticker_obj = yf.Ticker(candidate_ticker)
-        info = ticker_obj.info
-        hist = ticker_obj.history(period='1y')
-        
-        if not info or len(info) < 5:
-            return response + "⚠️ **Insufficient Data**: Cannot retrieve fundamental data for this ticker.\n"
         
         # === COMPANY OVERVIEW ===
         response += "### 🏢 Company Overview\n\n"
@@ -1037,32 +1949,32 @@ def analyze_investment_decision(user_question: str,
         peg_ratio = info.get('pegRatio')
         ev_ebitda = info.get('enterpriseToEbitda')
         
-        # Comprehensive valuation metrics
-        response += "**Valuation Multiples**:\n"
+        # Comprehensive valuation metrics with LLM explanations
+        response += "**Valuation Multiples with Interpretations**:\n"
         
         valuation_score = 0
         valuation_max = 0
         
         if pe_ratio and pe_ratio > 0:
             valuation_max += 1
-            response += f"• **P/E Ratio**: {pe_ratio:.1f}"
+            response += f"• **P/E Ratio: {pe_ratio:.1f}**\n"
             if pe_ratio < 15:
-                response += " ✓ (Undervalued territory)\n"
+                response += "    ✓ Undervalued—Stock trades below S&P 500 avg (18-20x). Catalyst needed: Either market eventually recognizes value, or fundamentals justify low valuation. Monitor earnings quality.\n"
                 valuation_score += 1
             elif pe_ratio > 30:
-                response += " ⚠️ (Premium valuation - needs strong growth)\n"
+                response += "    ⚠️ Premium valuation—Any earnings miss = multiple compression. Requires 15%+ annual growth to justify. High execution risk.\n"
             else:
-                response += " (Fair range)\n"
+                response += "    ✓ Fair pricing—In line with market. Valuation depends entirely on growth trajectory.\n"
                 valuation_score += 0.5
         
         if pb_ratio and pb_ratio > 0:
             valuation_max += 1
-            response += f"• **P/B Ratio**: {pb_ratio:.2f}"
+            response += f"• **P/B Ratio: {pb_ratio:.2f}**\n"
             if pb_ratio < 1.5:
-                response += " ✓ (Trading near book value)\n"
+                response += "    ✓ Trading near book—Low premium to balance sheet. Typically means market expects modest returns on equity. Good for value investors.\n"
                 valuation_score += 1
             elif pb_ratio > 5:
-                response += " (Asset-light or intangible-heavy)\n"
+                response += "    → Intangible-heavy asset base. Asset-light business model (tech, software) naturally has high P/B. Not necessarily expensive.\n"
             else:
                 response += "\n"
                 valuation_score += 0.5
@@ -1391,71 +2303,6 @@ def analyze_investment_decision(user_question: str,
             
             response += "\n"
         
-        # === FINAL VERDICT ===
-        response += "### 🎯 Investment Verdict\n\n"
-        
-        # Calculate aggregate score
-        verdict_score = 0
-        verdict_max = 0
-        
-        # Valuation
-        if valuation_max > 0:
-            verdict_score += (valuation_score / valuation_max) * 25
-            verdict_max += 25
-        
-        # Growth
-        if revenue_growth is not None:
-            verdict_max += 25
-            if revenue_growth > 0.15:
-                verdict_score += 25
-            elif revenue_growth > 0.05:
-                verdict_score += 15
-            elif revenue_growth > 0:
-                verdict_score += 10
-        
-        # Profitability
-        if roe is not None:
-            verdict_max += 25
-            if roe > 0.15:
-                verdict_score += 25
-            elif roe > 0.10:
-                verdict_score += 15
-            elif roe > 0.05:
-                verdict_score += 10
-        
-        # Momentum
-        if ret_3m is not None:
-            verdict_max += 25
-            if ret_3m > 0.10:
-                verdict_score += 25
-            elif ret_3m > 0:
-                verdict_score += 15
-            elif ret_3m > -0.10:
-                verdict_score += 10
-        
-        if verdict_max > 0:
-            final_score = (verdict_score / verdict_max) * 100
-            
-            response += f"**Overall Score**: {final_score:.0f}/100\n\n"
-            
-            if final_score >= 75:
-                response += "**Rating**: 🟢 **STRONG BUY**\n"
-                response += "_Compelling valuation, strong fundamentals, positive momentum. High conviction opportunity._\n"
-            elif final_score >= 60:
-                response += "**Rating**: 🟢 **BUY**\n"
-                response += "_Solid fundamentals with attractive entry point. Good risk/reward._\n"
-            elif final_score >= 45:
-                response += "**Rating**: 🟡 **HOLD**\n"
-                response += "_Mixed signals. Wait for better entry or catalyst. Monitor closely._\n"
-            elif final_score >= 30:
-                response += "**Rating**: 🔴 **UNDERPERFORM**\n"
-                response += "_Multiple red flags. Consider reducing exposure or avoiding._\n"
-            else:
-                response += "**Rating**: 🔴 **SELL**\n"
-                response += "_Significant concerns across valuation, fundamentals, and momentum. High risk._\n"
-        else:
-            response += "_Insufficient data for comprehensive rating._\n"
-        
     except Exception as e:
         response += f"⚠️ **Analysis Error**: {str(e)[:150]}\n\n"
         response += "Could not complete analysis. Please verify ticker and data availability.\n"
@@ -1465,13 +2312,13 @@ def analyze_investment_decision(user_question: str,
 
 def handle_education_question(question: str) -> str:
     """
-    Handle educational/definitional questions about investing concepts
+    Handle educational/definitional questions about investing concepts.
+    Enhanced with support for sectors, macro concepts, and market terminology.
     """
     response = "## 📚 Investment Education\n\n"
-    
     question_lower = question.lower()
     
-    # Common investment terms
+    # ==================== VALUATION METRICS ====================
     if 'p/e ratio' in question_lower or 'price earnings' in question_lower:
         response += "**P/E Ratio (Price-to-Earnings Ratio)**\n\n"
         response += "**Definition**: Stock price divided by earnings per share (EPS)\n\n"
@@ -1481,77 +2328,233 @@ def handle_education_question(question: str) -> str:
         response += "• Compare within same sector for meaningful comparison\n\n"
         response += "**Limitations**: Doesn't account for growth rates, debt levels, or industry differences\n"
     
-    elif 'diversification' in question_lower:
-        response += "**Diversification**\n\n"
-        response += "**Definition**: Spreading investments across different assets to reduce risk\n\n"
-        response += "**Core Principle**: Don't put all eggs in one basket\n\n"
-        response += "**Key Dimensions**:\n"
-        response += "• Across asset classes (stocks, bonds, real estate)\n"
-        response += "• Across sectors (tech, healthcare, finance, etc.)\n"
-        response += "• Across geographies (domestic vs. international)\n"
-        response += "• Across company sizes (large-cap, mid-cap, small-cap)\n\n"
-        response += "**Goal**: Reduce unsystematic (company-specific) risk while maintaining returns\n"
+    elif 'p/b ratio' in question_lower or 'price to book' in question_lower:
+        response += "**P/B Ratio (Price-to-Book Ratio)**\n\n"
+        response += "**Definition**: Stock price divided by book value per share (assets - liabilities)\n\n"
+        response += "**Interpretation**:\n"
+        response += "• P/B < 1: Stock trades below book value (potentially undervalued or distressed)\n"
+        response += "• P/B = 1: Stock trades at book value\n"
+        response += "• P/B > 3: Stock commands significant premium (growth or quality)\n\n"
+        response += "**Best For**: Capital-intensive industries (banking, manufacturing); less useful for tech\n"
+    
+    elif 'peg ratio' in question_lower or 'price earning growth' in question_lower:
+        response += "**PEG Ratio (Price/Earnings-to-Growth Ratio)**\n\n"
+        response += "**Definition**: P/E ratio divided by annual earnings growth rate\n\n"
+        response += "**Interpretation**:\n"
+        response += "• PEG < 1: Stock may be undervalued relative to growth\n"
+        response += "• PEG = 1: Stock fairly valued\n"
+        response += "• PEG > 1: Stock may be expensive relative to growth\n\n"
+        response += "**Advantage**: Accounts for growth, better than P/E alone\n"
+    
+    elif 'ev/ebitda' in question_lower or 'enterprise value' in question_lower:
+        response += "**EV/EBITDA Ratio**\n\n"
+        response += "**Definition**: Enterprise Value (market cap + debt - cash) / Earnings Before Interest, Tax, Depreciation\n\n"
+        response += "**Interpretation**:\n"
+        response += "• Lower EV/EBITDA: More attractive valuation\n"
+        response += "• Cross-sector comparable (unlike P/E which varies by industry)\n"
+        response += "• Typical range: 8-15x for mature companies\n\n"
+        response += "**Advantage**: Removes impact of financing and accounting choices\n"
+    
+    # ==================== RISK METRICS ====================
+    elif 'beta' in question_lower or 'market beta' in question_lower:
+        response += "## β - Beta (Systematic Risk)\n\n"
+        response += "**Definition**: Measure of how a stock moves relative to the market (S&P 500)\n\n"
+        response += "**Interpretation**:\n"
+        response += "• **Beta = 1.0**: Moves exactly with market (S&P 500 has beta of 1.0)\n"
+        response += "• **Beta > 1.0**: More volatile than market\n"
+        response += "  - Beta 1.5 = 50% larger moves than market\n"
+        response += "  - Example: Tech stocks often have beta > 1.5\n"
+        response += "• **Beta < 1.0**: Less volatile than market (defensive)\n"
+        response += "  - Beta 0.7 = 30% smoother than market\n"
+        response += "  - Example: Utilities often have beta < 0.8\n"
+        response += "• **Beta < 0**: Inverse relationship (rare, some bonds/hedges)\n\n"
+        response += "**Practical Example**:\n"
+        response += "If market rises 10%:\n"
+        response += "  - Beta 1.0 stock → +10%\n"
+        response += "  - Beta 1.5 stock → +15%\n"
+        response += "  - Beta 0.7 stock → +7%\n\n"
+        response += "**Use**: Assess portfolio systematic risk and volatility expectations\n"
+    
+    elif 'volatility' in question_lower:
+        response += "**Volatility (σ - Sigma)**\n\n"
+        response += "**Definition**: Statistical measure of price fluctuation (standard deviation of returns)\n\n"
+        response += "**Measurement**: Typically annualized\n\n"
+        response += "**Interpretation**:\n"
+        response += "• **High Volatility (>30%)**: Large price swings, higher uncertainty\n"
+        response += "  - Example: Small-cap tech stocks ~40-50%\n"
+        response += "• **Medium Volatility (15-25%)**: Typical equities\n"
+        response += "  - Example: S&P 500 ~18%\n"
+        response += "• **Low Volatility (<10%)**: Stable, less risky\n"
+        response += "  - Example: Treasury bonds ~5%\n\n"
+        response += "**Note**: Volatility measures fluctuation, not direction. An asset can be volatile but profitable.\n"
     
     elif 'sharpe ratio' in question_lower:
         response += "**Sharpe Ratio**\n\n"
-        response += "**Definition**: Measure of risk-adjusted return\n\n"
-        response += "**Formula**: (Portfolio Return - Risk-Free Rate) / Portfolio Volatility\n\n"
+        response += "**Definition**: Risk-adjusted return = (Portfolio Return - Risk-Free Rate) / Volatility\n\n"
+        response += "**Formula**: (Return - Risk-Free Rate) / Standard Deviation\n\n"
         response += "**Interpretation**:\n"
-        response += "• >1.0: Good risk-adjusted performance\n"
-        response += "• >2.0: Excellent risk-adjusted performance\n"
-        response += "• <1.0: Poor risk-adjusted performance\n"
-        response += "• Negative: Portfolio underperformed risk-free rate\n\n"
-        response += "**Use Case**: Compare investments with different risk levels\n"
-    
-    elif 'beta' in question_lower:
-        response += "**Beta**\n\n"
-        response += "**Definition**: Measure of systematic risk relative to market\n\n"
-        response += "**Interpretation**:\n"
-        response += "• Beta = 1: Moves with market\n"
-        response += "• Beta > 1: More volatile than market (amplifies moves)\n"
-        response += "• Beta < 1: Less volatile than market (defensive)\n"
-        response += "• Beta < 0: Moves opposite to market (rare)\n\n"
-        response += "**Example**: Beta of 1.5 means stock typically moves 1.5% for every 1% market move\n"
-    
-    elif 'volatility' in question_lower:
-        response += "**Volatility**\n\n"
-        response += "**Definition**: Statistical measure of price fluctuation\n\n"
-        response += "**Measurement**: Standard deviation of returns (typically annualized)\n\n"
-        response += "**Interpretation**:\n"
-        response += "• High volatility: Large price swings, higher uncertainty\n"
-        response += "• Low volatility: More stable prices, lower risk\n"
-        response += "• S&P 500 historical volatility: ~15-20% annualized\n\n"
-        response += "**Note**: Volatility measures price fluctuation, not direction\n"
+        response += "• **>1.0**: Good risk-adjusted performance (investment-grade)\n"
+        response += "• **>1.5**: Very good (professional fund managers target this)\n"
+        response += "• **>2.0**: Excellent/exceptional\n"
+        response += "• **<0.5**: Poor risk-adjusted performance\n"
+        response += "• **Negative**: Worse than risk-free rate\n\n"
+        response += "**Use**: Compare investments fairly (accounts for different risk levels)\n"
     
     elif 'correlation' in question_lower:
-        response += "**Correlation**\n\n"
-        response += "**Definition**: Statistical measure of how two assets move together\n\n"
-        response += "**Range**: -1 to +1\n\n"
+        response += "**Correlation (ρ - Rho)**\n\n"
+        response += "**Definition**: Measure of how two assets move together (-1 to +1)\n\n"
         response += "**Interpretation**:\n"
-        response += "• +1: Perfect positive correlation (move together)\n"
-        response += "• 0: No correlation (independent movements)\n"
-        response += "• -1: Perfect negative correlation (move opposite)\n\n"
-        response += "**For Diversification**: Seek assets with low or negative correlation\n"
+        response += "• **+1.0**: Perfect positive (move together exactly)\n"
+        response += "  - Example: APPL and tech index ~0.85\n"
+        response += "• **0.0**: No correlation (independent)\n"
+        response += "  - Example: Stocks and long-term bonds ~0.15\n"
+        response += "• **-1.0**: Perfect negative (move opposite)\n"
+        response += "  - Example: Rare; put options have negative correlation with stocks\n\n"
+        response += "**For Portfolio Diversification**:\n"
+        response += "Seek assets with LOW or NEGATIVE correlation to reduce portfolio volatility\n"
     
-    elif 'market cap' in question_lower or 'capitalization' in question_lower:
-        response += "**Market Capitalization**\n\n"
-        response += "**Definition**: Total market value of a company's outstanding shares\n\n"
-        response += "**Formula**: Share Price × Number of Shares Outstanding\n\n"
-        response += "**Categories**:\n"
-        response += "• Large-cap: >$10B (established, lower risk)\n"
-        response += "• Mid-cap: $2B-$10B (growth potential, moderate risk)\n"
-        response += "• Small-cap: <$2B (high growth potential, higher risk)\n\n"
-        response += "**Use**: Indicates company size and typically correlates with stability\n"
+    # ==================== MARKET CONCEPTS ====================
+    elif 'market cap' in question_lower or 'market capitalization' in question_lower:
+        response += "**Market Capitalization (Market Cap)**\n\n"
+        response += "**Definition**: Total market value = Share Price × Shares Outstanding\n\n"
+        response += "**Categories** (US market):\n"
+        response += "• **Mega-cap**: >$500B (Apple, Microsoft, Nvidia)\n"
+        response += "• **Large-cap**: $10B-$500B (established, lower risk)\n"
+        response += "• **Mid-cap**: $2B-$10B (growth potential, moderate risk)\n"
+        response += "• **Small-cap**: $300M-$2B (high growth potential, higher risk, less liquid)\n"
+        response += "• **Micro-cap**: <$300M (highly speculative, illiquid)\n\n"
+        response += "**Interpretation**: Indicates stability, liquidity, analyst coverage, and growth potential\n"
+    
+    elif 'dividend yield' in question_lower or 'dividend' in question_lower:
+        response += "**Dividend Yield**\n\n"
+        response += "**Definition**: Annual dividend per share / Current stock price\n\n"
+        response += "**Interpretation**:\n"
+        response += "• **High Yield (>5%)**: Income-focused; may indicate market concerns or mature business\n"
+        response += "• **Moderate Yield (2-4%)**: Balanced income and growth\n"
+        response += "• **Low/No Yield (<1%)**: Growth-focused companies (common in tech)\n\n"
+        response += "**Example**: Company pays $2 annual dividend, stock at $50 = 4% yield\n\n"
+        response += "**Warning**: Extremely high yields may signal financial distress\n"
+    
+    elif 'roe' in question_lower or 'return on equity' in question_lower:
+        response += "**ROE (Return on Equity)**\n\n"
+        response += "**Definition**: Net Income / Shareholders' Equity\n\n"
+        response += "**Interpretation**:\n"
+        response += "• **High ROE (>15%)**: Efficient use of shareholder capital\n"
+        response += "  - Example: Apple, Microsoft typically >20%\n"
+        response += "• **Average ROE (10-15%)**: Normal profitable business\n"
+        response += "• **Low ROE (<10%)**: Inefficient or struggling business\n\n"
+        response += "**Use**: Compare companies in same industry; indicates management efficiency\n"
+    
+    # ==================== SECTOR EDUCATION ====================
+    elif 'tmt' in question_lower or 'technology media telecom' in question_lower:
+        response += "## 📡 TMT Sector (Technology, Media, Telecom)\n\n"
+        response += "**Definition**: TMT is a cross-sector grouping combining:\n"
+        response += "• **Technology (XLK)**: Software, semiconductors, hardware, IT services\n"
+        response += "• **Media & Communications (XLC)**: Streaming, broadcasting, advertising, publishing  \n"
+        response += "• **Telecommunications**: Phone/internet providers, 5G infrastructure\n\n"
+        response += "**Key Characteristics**:\n"
+        response += "• High growth potential but elevated valuations\n"
+        response += "• Sensitive to interest rate changes (discount rates for future earnings)\n"
+        response += "• Subject to regulatory scrutiny\n"
+        response += "• Wide range of company sizes and profitability\n\n"
+        response += "**Current TMT Landscape**:\n"
+        response += "• **Big Tech dominates**: Apple, Microsoft, Google, Amazon, Meta\n"
+        response += "• **Semiconductor strength**: NVIDIA, Intel, AMD critical for AI\n"
+        response += "• **Telecom evolution**: Traditional telcos adding 5G/fiber, media pivoting to streaming\n"
+        response += "• **AI impact**: Rapid value creation and disruption in content, software, chips\n\n"
+        response += "**Investment Considerations**:\n"
+        response += "• High beta (more volatile than market)\n"
+        response += "• Vulnerable to tech cycles and recessions\n"
+        response += "• Requires understanding of technology disruption\n"
+    
+    elif 'healthcare sector' in question_lower or 'biotech' in question_lower or 'pharma' in question_lower:
+        response += "## 🏥 Healthcare Sector (XLV)\n\n"
+        response += "**Sub-Sectors**:\n"
+        response += "• **Pharmaceuticals**: Drug development and manufacturing\n"
+        response += "• **Biotech**: Genetic/cellular therapies, emerging treatments\n"
+        response += "• **Medical Devices**: Imaging, surgical tools, monitoring\n"
+        response += "• **Healthcare Services**: Providers, insurers, pharmacy benefit managers\n\n"
+        response += "**Characteristics**:\n"
+        response += "• Defensive sector (demand relatively stable in recessions)\n"
+        response += "• Long R&D cycles (drugs can take 10+ years to develop)\n"
+        response += "• Regulatory risk (FDA approval, pricing pressure)\n"
+        response += "• Demographics tailwind (aging populations globally)\n\n"
+        response += "**Key Risks**:\n"
+        response += "• Patent cliffs (loss of drug protection)\n"
+        response += "• Political risk (drug price regulation)\n"
+        response += "• Clinical trial failures\n"
+        response += "• Biotech extreme volatility (binary outcomes)\n"
+    
+    elif 'financial sector' in question_lower or 'finance' in question_lower:
+        response += "## 💰 Financial Sector (XLF)\n\n"
+        response += "**Components**:\n"
+        response += "• **Banks**: Commercial, investment, regional\n"
+        response += "• **Insurance**: Property/casualty, life, reinsurance\n"
+        response += "• **Real Estate Finance**: Mortgage REITs, lending\n\n"
+        response += "**Key Dynamics**:\n"
+        response += "• Very interest rate sensitive (higher rates = higher profits for banks)\n"
+        response += "• Economic cycle: Benefits in growth; struggles in recessions\n"
+        response += "• Regulatory environment significant\n"
+        response += "• Leverage amplifies both gains and losses\n\n"
+        response += "**Valuation Drivers**:\n"
+        response += "• Interest rate spreads (yield curve slope)\n"
+        response += "• Loan quality and non-performing asset ratios\n"
+        response += "• Capital ratios and dividend capacity\n"
+    
+    elif 'energy sector' in question_lower or 'oil' in question_lower:
+        response += "## ⛽ Energy Sector (XLE)\n\n"
+        response += "**Components**:\n"
+        response += "• **Upstream**: Oil/gas exploration and production\n"
+        response += "• **Midstream**: Pipelines, transportation, storage\n"
+        response += "• **Downstream**: Refining, distribution, retail\n"
+        response += "• **Utilities**: Integrated energy companies\n\n"
+        response += "**Key Characteristics**:\n"
+        response += "• Highly cyclical (booms and busts with commodity prices)\n"
+        response += "• Geopolitically sensitive (OPEC, sanctions, conflict)\n"
+        response += "• Energy transition risk (shift to renewables)\n"
+        response += "• Capital intensive (requires large upfront investment)\n\n"
+        response += "**Current Tailwinds/Headwinds**:\n"
+        response += "• ✓ Energy security focus post-Russia sanctions\n"
+        response += "• ✗ Long-term transition away from fossil fuels\n"
+        response += "• ✓ High cash generation supports dividends\n"
+        response += "• ✗ Volatile commodity prices create uncertainty\n"
+    
+    # ==================== GENERAL CONCEPTS ====================
+    elif 'diversification' in question_lower:
+        response += "**Diversification**\n\n"
+        response += "**Definition**: Spreading investments across uncorrelated assets to reduce risk\n\n"
+        response += "**Core Principle**: Don't put all eggs in one basket\n\n"
+        response += "**Dimensions**:\n"
+        response += "• **By asset class**: Stocks, bonds, real estate, commodities\n"
+        response += "• **By sector**: Tech, finance, healthcare, energy, etc.\n"
+        response += "• **By geography**: US, developed international, emerging markets\n"
+        response += "• **By company size**: Large-cap, mid-cap, small-cap\n"
+        response += "• **By style**: Value, growth, dividend\n\n"
+        response += "**Goal**: Reduce unsystematic (company-specific) risk while maintaining returns\n"
     
     else:
-        response += f"I can explain many investment concepts including:\n\n"
-        response += "• **Valuation**: P/E ratio, P/B ratio, EV/EBITDA\n"
-        response += "• **Risk metrics**: Beta, volatility, correlation, Sharpe ratio\n"
-        response += "• **Portfolio concepts**: Diversification, asset allocation, rebalancing\n"
-        response += "• **Market terms**: Market cap, sectors, indices\n"
-        response += "• **Returns**: Total return, dividend yield, capital gains\n\n"
-        response += "Please ask about a specific term or concept!\n"
+        # Comprehensive list if no specific match
+        response += "I can explain many investment concepts:\n\n"
+        response += "### 📊 Valuation Metrics\n"
+        response += "• P/E ratio • P/B ratio • PEG ratio • EV/EBITDA • Dividend yield\n\n"
+        response += "### 📈 Risk Metrics\n"
+        response += "• **Beta** - Systematic risk relative to market\n"
+        response += "• **Volatility** - Price fluctuation\n"
+        response += "• **Sharpe Ratio** - Risk-adjusted return\n"
+        response += "• **Correlation** - How assets move together\n\n"
+        response += "### 💼 Portfolio Concepts\n"
+        response += "• Diversification • Asset allocation • Rebalancing • Concentration risk\n\n"
+        response += "### 🏢 Sectors\n"
+        response += "• **TMT** (Technology, Media, Telecom) • Healthcare • Financials\n"
+        response += "• Energy • Consumer • Industrial • Materials • Utilities • Real Estate\n\n"
+        response += "### 💹 Market Terms\n"
+        response += "• Market cap • Index composition • Bull/bear markets • Market cycles\n\n"
+        response += "### 💰 Company Fundamentals\n"
+        response += "• ROE • ROA • Margin • Growth • Profitability\n\n"
+        response += "**Ask about any topic!** Examples:\n"
+        response += "_\"What is beta?\" \"Explain TMT industry\" \"How to interpret dividend yield?\"_\n"
     
+    response += "\n" + INVESTMENT_DISCLAIMER
     return response
 
 
@@ -1588,6 +2591,7 @@ def handle_user_question(question: str,
     Key Features:
     - Intelligent question classification with confidence scoring
     - Real data validation before analysis
+    - Routes to deep LLM analyzers for rich insights
     - Explicit fact vs. interpretation separation
     - Graceful handling of out-of-scope questions
     - Investment disclaimers on all advice
@@ -1612,7 +2616,13 @@ def handle_user_question(question: str,
             return prefix + handle_education_question(question)
         
         elif question_type == 'comparison':
-            # Stock comparison/ranking questions
+            # Stock comparison/ranking questions - Try LLM first
+            if LLM_AVAILABLE:
+                llm_response = llm_orchestrate_analysis(classification, question, portfolio_weights, returns_data)
+                if llm_response:
+                    return prefix + llm_response
+            
+            # Fallback to existing function
             portfolio_stocks = portfolio_weights.index.tolist() if portfolio_weights is not None else None
             return prefix + analyze_stock_comparison(question, portfolio_stocks)
         
@@ -1622,20 +2632,33 @@ def handle_user_question(question: str,
             return prefix + analyze_investment_decision(question, portfolio_weights, ticker, returns_data)
         
         elif question_type == 'sector':
-            # Sector/industry analysis
-            sector_name = entities[0] if entities else classification.get('keywords', ['technology'])[0]
+            # Sector/industry analysis - Try LLM first for deep sector rotation
+            if LLM_AVAILABLE:
+                llm_response = llm_orchestrate_analysis(classification, question, portfolio_weights, returns_data)
+                if llm_response:
+                    return prefix + llm_response
+            
+            # Fallback to existing function - get sector name from entities or keywords, or default to 'technology'
+            sector_name = None
+            if entities and len(entities) > 0:
+                sector_name = entities[0]
+            elif classification.get('keywords') and len(classification.get('keywords', [])) > 0:
+                sector_name = classification['keywords'][0]
+            else:
+                sector_name = 'technology'  # Default sector
+            
             return prefix + analyze_sector_industry(sector_name, portfolio_weights)
         
         elif question_type == 'market':
-            # Overall market conditions
-            return prefix + analyze_market_conditions()
+            # Overall market conditions - Use new market data analyzer
+            return prefix + analyze_market_data(question)
         
         elif question_type == 'macro':
             # Macro economic commentary
             return prefix + analyze_macro_environment(classification.get('keywords', []))
         
         elif question_type == 'portfolio':
-            # Portfolio-specific advice with clustering analysis
+            # Portfolio-specific advice - Try LLM analyzers for stress test & risk analysis
             if portfolio_weights is None or len(portfolio_weights) == 0:
                 response = "## 💼 Portfolio Analysis\n\n"
                 response += "⚠️ **No portfolio data available**.\n\n"
@@ -1645,15 +2668,21 @@ def handle_user_question(question: str,
                 response += "3. Return here for contextualized advice\n"
                 return response
             
-            if returns_data is not None and len(portfolio_weights) >= 3:
-                # Provide clustering analysis
-                return prefix + analyze_portfolio_clustering(portfolio_weights, returns_data)
+            if returns_data is not None and len(portfolio_weights) >= 1 and LLM_AVAILABLE:
+                # Try LLM-powered comprehensive analysis (stress test + risk analysis)
+                llm_response = llm_orchestrate_analysis(classification, question, portfolio_weights, returns_data)
+                if llm_response:
+                    return prefix + llm_response
+            
+            if returns_data is not None and len(portfolio_weights) >= 1:
+                # Provide comprehensive portfolio performance analysis
+                return prefix + analyze_portfolio_performance(portfolio_weights, returns_data)
             else:
                 # Basic portfolio info if insufficient data
                 response = "## 💼 Your Portfolio\n\n"
                 response += f"**Holdings**: {len(portfolio_weights)} positions\n"
                 response += f"**Top positions**: {', '.join(portfolio_weights.nlargest(3).index.tolist())}\n\n"
-                response += "_For comprehensive clustering analysis, ensure you have at least 3 stocks with sufficient historical data._\n\n"
+                response += "_For comprehensive performance analysis, ensure you have sufficient historical data._\n\n"
                 response += "_For other insights, visit:_\n"
                 response += "• **Holdings Analysis** page: Risk factor exposure, beta, performance\n"
                 response += "• **AI Analysis** page: LLM-powered insights and recommendations\n"
@@ -1704,3 +2733,282 @@ def handle_user_question(question: str,
         error_response += "• Invalid ticker symbol or sector name\n\n"
         error_response += "Please try again or rephrase your question.\n"
         return error_response
+
+
+# ==================== ENHANCED MARKET DATA ANALYZER ====================
+
+def analyze_market_data(question: str) -> str:
+    """
+    Comprehensive market data analysis focused on market conditions and trends.
+    Handles questions about market indices, volatility, market regime, etc.
+    """
+    response = "## 📊 Market Data Analysis\n\n"
+    market_status = get_market_status()
+    response += f"{market_status['emoji']} **Market Status**: {market_status['message']} ({market_status['time']})\n"
+    response += f"**Analysis Date**: {get_data_timestamp()}\n\n"
+    
+    try:
+        # Fetch major indices
+        indices = {
+            'SPY': 'S&P 500 (Large-cap)',
+            'QQQ': 'Nasdaq 100 (Tech-heavy)',
+            'IWM': 'Russell 2000 (Small-cap)',
+            'EFA': 'EAFE (International Developed)',
+            'EEM': 'Emerging Markets',
+            'TLT': 'Long-term Treasuries (20Y+)',
+            'GLD': 'Gold',
+            'DBC': 'Commodities'
+        }
+        
+        response += "### 📈 Performance Across Asset Classes\n\n"
+        
+        timeframes = ['1d', '1mo', '3mo', '1y']
+        timeframe_names = ['Today', '1-Month', '3-Month', '1-Year']
+        
+        # Get performance for each timeframe
+        for timeframe, timeframe_name in zip(timeframes, timeframe_names):
+            response += f"**{timeframe_name} Performance**:\n"
+            
+            perf_data = {}
+            for ticker, name in indices.items():
+                try:
+                    data = yf.download(ticker, period=timeframe, progress=False, auto_adjust=False)
+                    if not data.empty:
+                        if isinstance(data.columns, pd.MultiIndex):
+                            ret = (data['Adj Close', ticker].iloc[-1] / data['Adj Close', ticker].iloc[0] - 1)
+                        else:
+                            ret = (data['Adj Close'].iloc[-1] / data['Adj Close'].iloc[0] - 1)
+                        perf_data[name] = ret
+                except:
+                    pass
+            
+            if perf_data:
+                sorted_perf = sorted(perf_data.items(), key=lambda x: x[1], reverse=True)
+                for name, ret in sorted_perf:
+                    emoji = '📈' if ret > 0 else '📉'
+                    response += f"• {emoji} {name}: {ret*100:+.2f}%\n"
+                response += "\n"
+        
+        # Volatility analysis
+        response += "### 📊 Volatility Analysis\n\n"
+        
+        spy_data = yf.download('SPY', period='1y', progress=False, auto_adjust=False)
+        if not spy_data.empty:
+            if isinstance(spy_data.columns, pd.MultiIndex):
+                spy_returns = spy_data['Adj Close', 'SPY'].pct_change().dropna()
+            else:
+                spy_returns = spy_data['Adj Close'].pct_change().dropna()
+            
+            current_vol = spy_returns.tail(20).std() * np.sqrt(252)
+            avg_vol = spy_returns.tail(60).std() * np.sqrt(252)
+            hist_vol = spy_returns.std() * np.sqrt(252)
+            
+            response += f"• **Current 20-day vol (SPY)**: {current_vol*100:.1f}%\n"
+            response += f"• **60-day average vol**: {avg_vol*100:.1f}%\n"
+            response += f"• **1-year average vol**: {hist_vol*100:.1f}%\n"
+            
+            if current_vol > avg_vol * 1.3:
+                response += "• 🔴 **Elevated volatility** - Markets more turbulent than usual\n"
+            elif current_vol < avg_vol * 0.7:
+                response += "• 🟢 **Low volatility** - Markets calm, tight trading ranges\n"
+            else:
+                response += "• 🟡 **Normal volatility** - Typical market fluctuations\n"
+            response += "\n"
+        
+        # Breadth analysis
+        response += "### 🎯 Market Breadth\n\n"
+        response += "**Interpreting Market Breadth**:\n"
+        response += "• When most stocks rise with indices: Broad-based rally (healthy)\n"
+        response += "• When few mega-cap stocks drive indices: Narrow market (vulnerable)\n"
+        response += "• When stocks decline but indices hold: Divergence (warning sign)\n\n"
+        
+        # Correlation matrix
+        response += "### 🔗 Asset Class Correlations\n\n"
+        response += "**Current Market Dynamics**:\n"
+        response += "• **Stocks-Bonds correlation**: Usually negative (good diversification)\n"
+        response += "  - When rising: Rates rising, both hurt (risk-off)\n"
+        response += "• **Stocks-Gold correlation**: Usually negative to neutral\n"
+        response += "  - Gold rises: Flight to safety, risk-off\n"
+        response += "• **Tech-Energy correlation**: Usually low\n"
+        response += "  - Tech weak but energy strong: Sector rotation\n\n"
+        
+        # Key takeaways
+        response += "### 💡 Market Context\n\n"
+        response += "**What Drives Markets Currently**:\n"
+        response += "1. **Interest Rates** - Fed policy, inflation expectations\n"
+        response += "2. **Earnings** - Corporate profitability, guidance\n"
+        response += "3. **Economic Data** - Growth, employment, inflation\n"
+        response += "4. **Geopolitics** - Conflicts, sanctions, trade tensions\n"
+        response += "5. **Tech/AI Narrative** - Sector rotation, valuation reassessment\n\n"
+        
+        response += "**For Portfolio Implications**:\n"
+        response += "• High volatility → Rebalance to fixed allocation\n"
+        response += "• Rising rates → Review bond duration, dividend yields\n"
+        response += "• Tech strength → Check portfolio tech concentration\n"
+        response += "• Sector rotation → Ensure adequate diversification\n"
+        
+    except Exception as e:
+        response += f"⚠️ **Data Error**: {str(e)[:100]}\n"
+    
+    response += "\n" + INVESTMENT_DISCLAIMER
+    return response
+
+
+def analyze_sector_growth(question: str) -> str:
+    """
+    Analyze sector growth trends, outlook, and investment characteristics.
+    """
+    response = "## 🏢 Sector Growth & Trends Analysis\n\n"
+    
+    # Identify sector from question
+    sector_map = {
+        'technology': 'XLK',
+        'tech': 'XLK',
+        'healthcare': 'XLV',
+        'health': 'XLV',
+        'finance': 'XLF',
+        'financial': 'XLF',
+        'energy': 'XLE',
+        'consumer': 'XLY',
+        'industrial': 'XLI',
+        'materials': 'XLB',
+        'utilities': 'XLU',
+        'staples': 'XLP',
+        'real estate': 'XLRE',
+        'communications': 'XLC',
+    }
+    
+    detected_sector = None
+    for sector_key, etf in sector_map.items():
+        if sector_key in question.lower():
+            detected_sector = etf
+            break
+    
+    if not detected_sector:
+        detected_sector = 'XLK'  # Default to tech
+    
+    try:
+        # Fetch sector data
+        sector_data = yf.download(detected_sector, period='1y', progress=False, auto_adjust=False)
+        spy_data = yf.download('SPY', period='1y', progress=False, auto_adjust=False)
+        
+        if sector_data.empty or spy_data.empty:
+            return response + "⚠️ **Insufficient data** for sector analysis.\n"
+        
+        if isinstance(sector_data.columns, pd.MultiIndex):
+            sector_price = sector_data['Adj Close', detected_sector]
+            spy_price = spy_data['Adj Close', 'SPY']
+        else:
+            sector_price = sector_data['Adj Close']
+            spy_price = spy_data['Adj Close']
+        
+        # Performance metrics
+        sector_ret = (sector_price.iloc[-1] / sector_price.iloc[0] - 1)
+        spy_ret = (spy_price.iloc[-1] / spy_price.iloc[0] - 1)
+        relative_ret = sector_ret - spy_ret
+        
+        sector_vol = sector_price.pct_change().std() * np.sqrt(252)
+        spy_vol = spy_price.pct_change().std() * np.sqrt(252)
+        
+        response += "### 📊 Sector Performance\n\n"
+        response += f"**{detected_sector} (ETF) YTD Returns**: {sector_ret*100:+.2f}%\n"
+        response += f"**S&P 500 YTD**: {spy_ret*100:+.2f}%\n"
+        response += f"**Relative Outperformance**: {relative_ret*100:+.2f}pp\n"
+        response += f"**Volatility**: {sector_vol*100:.1f}% (S&P 500: {spy_vol*100:.1f}%)\n\n"
+        
+        if relative_ret > 0.08:
+            response += "🟢 **Strong Outperformance** - Sector leading the market\n"
+        elif relative_ret > 0:
+            response += "🟡 **Slight Outperformance** - Sector keeping pace with gains\n"
+        elif relative_ret > -0.08:
+            response += "🟡 **Slight Underperformance** - Sector lagging slightly\n"
+        else:
+            response += "📉 **Significant Underperformance** - Sector struggling relative to market\n"
+        
+        response += "\n"
+        
+        # Growth drivers by sector
+        response += "### 💡 Sector-Specific Growth Drivers\n\n"
+        
+        if detected_sector == 'XLK':  # Technology
+            response += "**Technology Sector Growth Drivers**:\n"
+            response += "• AI/ML adoption across enterprises\n"
+            response += "• Cloud infrastructure expansion\n"
+            response += "• Semiconductor demand (chips for all devices)\n"
+            response += "• Software SaaS model recurring revenue\n"
+            response += "• Interest rate sensitivity (high-growth valuations)\n\n"
+            response += "**Risks**:\n"
+            response += "• Regulatory scrutiny (antitrust, data privacy)\n"
+            response += "• Valuation compression if rates rise\n"
+            response += "• China geopolitical tensions (semiconductors)\n"
+        
+        elif detected_sector == 'XLV':  # Healthcare
+            response += "**Healthcare Sector Growth Drivers**:\n"
+            response += "• Aging demographics (boomers entering peak medical spending)\n"
+            response += "• Breakthrough therapies (GLP-1 obesity drugs, biologics)\n"
+            response += "• Telemedicine adoption\n"
+            response += "• Medical device innovation\n"
+            response += "• Pharma pipeline development\n\n"
+            response += "**Risks**:\n"
+            response += "• Drug price regulation\n"
+            response += "• Patent cliffs\n"
+            response += "• Clinical trial failures (biotech)\n"
+        
+        elif detected_sector == 'XLF':  # Financials
+            response += "**Financials Sector Growth Drivers**:\n"
+            response += "• Interest rate levels (steeper curve = higher NII)\n"
+            response += "• Economic growth → lending demand\n"
+            response += "• M&A activity\n"
+            response += "• Insurance underwriting premiums\n"
+            response += "• Capital market activity\n\n"
+            response += "**Risks**:\n"
+            response += "• Recession → credit losses\n"
+            response += "• Deposit flight\n"
+            response += "• Regulatory capital requirements\n"
+        
+        elif detected_sector  == 'XLE':  # Energy
+            response += "**Energy Sector Growth Drivers**:\n"
+            response += "• Oil/gas prices (commodity-driven)\n"
+            response += "• ESG restrictions limiting supply\n"
+            response += "• Energy security focus (post-Russia)\n"
+            response += "• Dividend yield attraction\n"
+            response += "• Geopolitical tensions raising prices\n\n"
+            response += "**Risks**:\n"
+            response += "• Long-term energy transition (EV, renewables)\n"
+            response += "• Commodity price volatility\n"
+            response += "• Recession demand destruction\n"
+            response += "• Climate policy/carbon taxes\n"
+        
+        else:
+            response += f"**{detected_sector} Sector Analysis**:\n"
+            response += "Growth driven by economic cycles, regulation, and innovation in their respective domains.\n"
+        
+        response += "\n### 📈 Valuation & Attractiveness\n\n"
+        response += "**Relative Valuation vs Market**:\n"
+        
+        # Simple relative valuation proxy
+        if sector_vol > spy_vol * 1.2:
+            response += f"• Higher volatility ({sector_vol*100:.1f}% vs {spy_vol*100:.1f}%) suggests growth-oriented or cyclical\n"
+        else:
+            response += f"• Similar volatility profile to market\n"
+        
+        if relative_ret > 0 and sector_vol < spy_vol:
+            response += "• 🟢 Outperforming with lower risk (ideal)\n"
+        elif relative_ret < 0 and sector_vol > spy_vol:
+            response += "• 🔴 Underperforming with higher risk (avoid)\n"
+        else:
+            response += "• Mixed risk/reward profile - require sector-specific convictions\n"
+        
+        response += "\n### 🎯 Investment Considerations\n\n"
+        response += "**Key Questions to Ask Yourself**:\n"
+        response += "1. Do I believe in this sector's growth narrative?\n"
+        response += "2. Is valuation reasonable given growth prospects?\n"
+        response += "3. Does sector fit my risk tolerance?\n"
+        response += "4. How correlated is this sector to my other holdings?\n"
+        response += "5. What's the macro backdrop (rates, economy, policy)?\n"
+        
+    except Exception as e:
+        response += f"⚠️ **Analysis Error**: {str(e)[:100]}\n"
+    
+    response += "\n" + INVESTMENT_DISCLAIMER
+    return response
