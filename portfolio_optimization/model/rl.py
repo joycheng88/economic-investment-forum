@@ -518,7 +518,8 @@ def train_rl_agent(
     transaction_cost_rate: float = 0.001,
     risk_aversion: float = 1.0,
     batch_size: int = 32,
-    verbose: bool = True
+    verbose: bool = True,
+    random_seed: int = 42
 ) -> Tuple[PortfolioRLAgent, StateExtractor]:
     """
     Train RL agent on historical returns.
@@ -553,6 +554,14 @@ def train_rl_agent(
     """
     if not TORCH_AVAILABLE:
         raise ImportError("PyTorch required. Install with: pip install torch")
+    
+    # SET SEEDS FOR REPRODUCIBILITY - FIX FOR UNSTABLE METRICS
+    np.random.seed(random_seed)
+    torch.manual_seed(random_seed)
+    torch.cuda.manual_seed(random_seed)
+    torch.cuda.manual_seed_all(random_seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     
     n_assets = returns.shape[1]
     
@@ -670,7 +679,8 @@ def get_rl_weights(
     state_extractor: Optional[StateExtractor] = None,
     n_epochs: int = 50,
     max_weight: float = 0.15,
-    long_only: bool = True
+    long_only: bool = True,
+    random_seed: int = 42
 ) -> pd.Series:
     """
     Get optimal portfolio weights from trained RL agent.
@@ -691,6 +701,8 @@ def get_rl_weights(
         Maximum single-asset weight (default 0.15)
     long_only : bool
         Enforce non-negative weights (default True)
+    random_seed : int
+        Random seed for reproducibility (default 42)
     
     Returns:
     --------
@@ -708,7 +720,8 @@ def get_rl_weights(
             transaction_cost_rate=0.001,
             risk_aversion=1.0,
             batch_size=32,
-            verbose=False
+            verbose=False,
+            random_seed=random_seed
         )
     
     # Get current state from full history

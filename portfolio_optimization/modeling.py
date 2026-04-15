@@ -781,10 +781,21 @@ class DCFValuation:
             return {}
         
         try:
-            wacc = wacc or self.assumptions.get('wacc', 0.10)
-            terminal_growth = terminal_growth or self.assumptions.get('terminal_growth', 0.025)
-            forecast_years = forecast_years or self.assumptions.get('forecast_years', 5)
-            revenue_growth = revenue_growth or self.assumptions.get('revenue_growth', 0.05)
+            # Defensive None handling with explicit type checking
+            wacc = wacc if wacc is not None else (self.assumptions.get('wacc') if self.assumptions else None)
+            wacc = wacc if wacc is not None else 0.10
+            wacc = float(wacc) if wacc else 0.10
+            
+            terminal_growth = terminal_growth if terminal_growth is not None else (self.assumptions.get('terminal_growth') if self.assumptions else None)
+            terminal_growth = terminal_growth if terminal_growth is not None else 0.025
+            terminal_growth = float(terminal_growth) if terminal_growth else 0.025
+            
+            forecast_years = forecast_years if forecast_years is not None else (self.assumptions.get('forecast_years') if self.assumptions else None)
+            forecast_years = int(forecast_years) if forecast_years is not None else 5
+            
+            revenue_growth = revenue_growth if revenue_growth is not None else (self.assumptions.get('revenue_growth') if self.assumptions else None)
+            revenue_growth = revenue_growth if revenue_growth is not None else 0.05
+            revenue_growth = float(revenue_growth) if revenue_growth else 0.05
             
             # Create ranges (±3% around base, 7 points each)
             wacc_range = np.linspace(max(0.03, wacc - 0.03), wacc + 0.03, 7)
@@ -792,6 +803,9 @@ class DCFValuation:
             
             # Create sensitivity dictionary
             sensitivity_dict = {}
+            
+            # Prepare fallback assumptions in case self.assumptions is None
+            assumptions_dict = self.assumptions if self.assumptions else {}
             
             for wacc_val in wacc_range:
                 wacc_key = f"{wacc_val*100:.1f}%"
@@ -803,23 +817,26 @@ class DCFValuation:
                         dcf = DCFValuation(self.ticker)
                         result = dcf.run_analysis(
                             wacc=float(wacc_val),
-                            terminal_growth=float(terminal_growth) if terminal_growth else self.assumptions.get('terminal_growth', 0.025),
+                            terminal_growth=float(terminal_growth) if terminal_growth else assumptions_dict.get('terminal_growth', 0.025),
                             forecast_years=int(forecast_years),
-                            risk_free_rate=self.assumptions.get('risk_free_rate'),
-                            market_risk_premium=self.assumptions.get('market_risk_premium'),
-                            tax_rate=self.assumptions.get('tax_rate'),
-                            cost_of_debt=self.assumptions.get('cost_of_debt'),
+                            risk_free_rate=assumptions_dict.get('risk_free_rate'),
+                            market_risk_premium=assumptions_dict.get('market_risk_premium'),
+                            tax_rate=assumptions_dict.get('tax_rate'),
+                            cost_of_debt=assumptions_dict.get('cost_of_debt'),
                             revenue_growth=float(growth_val)
                         )
                         
                         if result.get('success'):
-                            growth_key = f"{growth_val*100:.1f}%"
-                            sensitivity_dict[wacc_key][growth_key] = result['intrinsic_value']
+                            growth_key = f"{float(growth_val)*100:.1f}%"
+                            sensitivity_dict[wacc_key][growth_key] = result.get('intrinsic_value', 0.0)
                         else:
-                            growth_key = f"{growth_val*100:.1f}%"
+                            growth_key = f"{float(growth_val)*100:.1f}%"
                             sensitivity_dict[wacc_key][growth_key] = 0.0
-                    except:
-                        growth_key = f"{growth_val*100:.1f}%"
+                    except Exception as inner_e:
+                        try:
+                            growth_key = f"{float(growth_val)*100:.1f}%"
+                        except:
+                            growth_key = "N/A"
                         sensitivity_dict[wacc_key][growth_key] = 0.0
             
             self.sensitivity_data = sensitivity_dict
@@ -1074,8 +1091,28 @@ class ValuationReport:
         
         assumptions = self.dcf_result['assumptions']
         
-        data = {
-            'Assumption': [
+        # Build base assumptions list
+        assumptions_list = ['Valuation Method']
+        values_list = [assumptions.get('valuation_method', 'FCF-based')]
+        
+        # Add method-specific assumptions
+        valuation_method = assumptions.get('valuation_method', 'FCF-based')
+        
+        if 'P/E' in valuation_method:
+            # P/E method assumptions
+            assumptions_list.extend([
+                'Valuation P/E Multiple',
+                'Trailing P/E Multiple',
+                'EPS',
+            ])
+            values_list.extend([
+                f"{assumptions.get('valuation_pe', 'N/A')}x",
+                f"{assumptions.get('trailing_pe', 'N/A'):.1f}x",
+                f"${assumptions.get('eps', 'N/A')}",
+            ])
+        else:
+            # DCF method assumptions
+            assumptions_list.extend([
                 'WACC',
                 'Risk-Free Rate',
                 'Market Risk Premium',
@@ -1084,17 +1121,26 @@ class ValuationReport:
                 'Revenue Growth Rate',
                 'Terminal Growth Rate',
                 'Forecast Period',
-            ],
-            'Value': [
-                f"{assumptions['wacc']*100:.2f}%",
-                f"{assumptions['risk_free_rate']*100:.2f}%",
-                f"{assumptions['market_risk_premium']*100:.2f}%",
+            ])
+            values_list.extend([
+                f"{assumptions.get('wacc', 0)*100:.2f}%",
+                f"{assumptions.get('risk_free_rate', 0)*100:.2f}%",
+                f"{assumptions.get('market_risk_premium', 0)*100:.2f}%",
                 f"{self._estimate_cost_of_debt()*100:.2f}%",
-                f"{assumptions['tax_rate']*100:.1f}%",
-                f"{assumptions['revenue_growth']*100:.1f}%",
-                f"{assumptions['terminal_growth']*100:.2f}%",
-                f"{assumptions['forecast_years']} years",
-            ]
+                f"{assumptions.get('tax_rate', 0)*100:.1f}%",
+                f"{assumptions.get('revenue_growth', 0)*100:.1f}%",
+                f"{assumptions.get('terminal_growth', 0)*100:.2f}%",
+                f"{assumptions.get('forecast_years', 0)} years",
+            ])
+        
+        # Add notes if present
+        if assumptions.get('note'):
+            assumptions_list.append('Note')
+            values_list.append(assumptions.get('note'))
+        
+        data = {
+            'Assumption': assumptions_list,
+            'Value': values_list
         }
         
         return pd.DataFrame(data)

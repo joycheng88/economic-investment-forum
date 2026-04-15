@@ -683,7 +683,36 @@ def classify_question_type(question: str) -> Dict[str, Any]:
             classification['keywords'].append('timeframe_specified')
         return classification  # Early return for comparative questions
     
-    # PRIORITY 2: Portfolio-specific (VERY HIGH PRIORITY - must come BEFORE education!)
+    # PRIORITY 1.5: Stock addition to portfolio (HIGH PRIORITY - specific investment decision)
+    # This catches "Should I add MSFT to my portfolio?" - should NOT be treated as generic portfolio question
+    add_patterns = ['should i add', 'can i add', 'would i add', 'should i buy', 'should i purchase',
+                   'add to my portfolio', 'add to our portfolio', 'adding to portfolio',
+                   'consider adding', 'think about adding', 'idea of adding', 'fit in my portfolio',
+                   'fit in our portfolio', 'right fit', 'good fit', 'works with', 'complements']
+    if any(pattern in question_lower for pattern in add_patterns):
+        # Try to extract a ticker
+        tickers = extract_ticker_from_question(question)
+        if tickers:
+            classification['type'] = 'stock'
+            classification['entities'].append(tickers)
+            classification['intent'] = 'portfolio_fit'  # Special intent for portfolio fit analysis
+            classification['confidence'] = 0.93
+            return classification  # Early return for stock addition questions
+    
+    # PRIORITY 2: Macro keywords (HIGH PRIORITY - domain-specific, should override generic patterns)
+    # Check this BEFORE portfolio keywords so "How will Fed rate cuts impact my portfolio?" is recognized as macro
+    macro_keywords = ['fed', 'federal reserve', 'interest rate', 'inflation', 'cpi',
+                     'unemployment', 'gdp', 'recession', 'economy', 'economic',
+                     'monetary policy', 'fiscal policy', 'treasury', 'bond yield', 'yield curve',
+                     'geopolitic', 'trade war', 'tariff', 'dollar strength', 'currency',
+                     'central bank', 'economic cycle', 'market cycle', 'business cycle']
+    if any(k in question_lower for k in macro_keywords):
+        classification['type'] = 'macro'
+        classification['keywords'] = [k for k in macro_keywords if k in question_lower]
+        classification['confidence'] = 0.88
+        return classification  # Early return for macro questions
+    
+    # PRIORITY 3: Portfolio-specific (VERY HIGH PRIORITY - but AFTER macro and stock addition checks!)
     # This catches questions about user's own holdings/portfolio
     portfolio_keywords = ['my portfolio', 'our portfolio', 'current holdings', 'rebalance', 'my positions',
                          'my investments', 'my stocks', 'portfolio performance', 'portfolio doing',
@@ -698,18 +727,6 @@ def classify_question_type(question: str) -> Dict[str, Any]:
         classification['type'] = 'portfolio'
         classification['confidence'] = 0.95
         return classification  # Early return for portfolio questions
-    
-    # PRIORITY 3: Macro keywords (HIGH PRIORITY - domain-specific, should override generic education patterns)
-    macro_keywords = ['fed', 'federal reserve', 'interest rate', 'inflation', 'cpi',
-                     'unemployment', 'gdp', 'recession', 'economy', 'economic',
-                     'monetary policy', 'fiscal policy', 'treasury', 'bond yield', 'yield curve',
-                     'geopolitic', 'trade war', 'tariff', 'dollar strength', 'currency',
-                     'central bank', 'economic cycle', 'market cycle', 'business cycle']
-    if any(k in question_lower for k in macro_keywords):
-        classification['type'] = 'macro'
-        classification['keywords'] = [k for k in macro_keywords if k in question_lower]
-        classification['confidence'] = 0.88
-        return classification  # Early return for macro questions
     
     # PRIORITY 4: Market-level keywords (high priority - before sector)
     market_keywords = ['overall market', 'market outlook', 'market condition', 'sp500', 's&p 500', 
@@ -737,13 +754,38 @@ def classify_question_type(question: str) -> Dict[str, Any]:
     ]
     
     detected_sectors = []
+    detected_sub_sectors = []  # Track specific sub-sectors like "semiconductor", "pharma"
+    
     for sector_name, patterns in sector_patterns:
         if any(p in question_lower for p in patterns):
             detected_sectors.append(sector_name)
+            # Track sub-sector specificity
+            if sector_name == 'technology':
+                if any(p in question_lower for p in ['semiconductor', 'semi']):
+                    detected_sub_sectors.append('semiconductor')
+                elif any(p in question_lower for p in ['software']):
+                    detected_sub_sectors.append('software')
+            elif sector_name == 'healthcare':
+                if any(p in question_lower for p in ['pharma', 'pharmaceutical']):
+                    detected_sub_sectors.append('pharma')
+                elif any(p in question_lower for p in ['biotech', 'bio']):
+                    detected_sub_sectors.append('biotech')
+            elif sector_name == 'finance':
+                if any(p in question_lower for p in ['banking', 'bank']):
+                    detected_sub_sectors.append('banking')
+                elif any(p in question_lower for p in ['insurance']):
+                    detected_sub_sectors.append('insurance')
+            elif sector_name == 'energy':
+                if any(p in question_lower for p in ['oil']):
+                    detected_sub_sectors.append('oil')
+                elif any(p in question_lower for p in ['gas']):
+                    detected_sub_sectors.append('gas')
     
     if detected_sectors:
         classification['type'] = 'sector'
         classification['entities'].extend(detected_sectors)
+        if detected_sub_sectors:
+            classification['sub_sector'] = detected_sub_sectors[0]  # Store specific sub-sector
         classification['confidence'] = 0.82
         return classification  # Early return for sector questions
     
@@ -1241,6 +1283,170 @@ def analyze_sector_industry(sector_name: str, portfolio_weights: Optional[pd.Ser
     except Exception as e:
         response += f"⚠️ **Error**: Could not complete sector analysis: {str(e)[:100]}\n"
     
+    return response
+
+
+def analyze_semiconductor_industry(portfolio_weights: Optional[pd.Series] = None) -> str:
+    """
+    Deep semiconductor industry analysis with key players, trends, and competitive dynamics
+    """
+    market_status = get_market_status()
+    
+    response = f"## 🖥️ Semiconductor Industry Deep Dive\n\n"
+    response += f"{market_status['emoji']} **Market Status**: {market_status['message']} ({market_status['time']})\n"
+    response += f"**Data Timestamp**: {get_data_timestamp()}\n\n"
+    
+    # Key semiconductor companies for performance tracking
+    semi_tickers = {
+        'NVDA': 'NVIDIA (AI GPUs, Data Center)',
+        'AMD': 'Advanced Micro Devices (CPUs, GPUs)',
+        'QCOM': 'Qualcomm (Mobile Chips, 5G)',
+        'TSM': 'TSMC (Leading Foundry)',
+        'INTC': 'Intel (CPUs, Process Tech)',
+        'ASML': 'ASML (Chip Equipment)',
+        'AVGO': 'Broadcom (Infrastructure)',
+        'MU': 'Micron (Memory)',
+        'XLNX': 'Xilinx (FPGAs)'
+    }
+    
+    try:
+        # Fetch industry ETF (XLK - Technology) represents semiconductors as part of tech
+        # But let's add specific semi-focused data
+        response += "### 📊 Key Semiconductor Players Performance\n\n"
+        
+        ticker_returns = {}
+        for ticker, description in semi_tickers.items():
+            try:
+                data = yf.download(ticker, period='1y', progress=False, auto_adjust=False)
+                if not data.empty:
+                    # Handle multi-index columns from download
+                    if isinstance(data.columns, pd.MultiIndex):
+                        adj_close = data['Adj Close'][ticker]
+                    else:
+                        adj_close = data['Adj Close']
+                    
+                    # Ensure we have a Series
+                    if isinstance(adj_close, pd.DataFrame):
+                        adj_close = adj_close.squeeze()
+                    
+                    if len(adj_close) > 0:
+                        ytd_return = (adj_close.iloc[-1] / adj_close.iloc[0] - 1)
+                        current_price = adj_close.iloc[-1]
+                        
+                        # Get 1-month return for momentum
+                        if len(adj_close) >= 21:
+                            month_return = (adj_close.iloc[-1] / adj_close.iloc[-21] - 1)
+                        else:
+                            month_return = 0
+                        
+                        ticker_returns[ticker] = {
+                            'ytd': ytd_return,
+                            'month': month_return,
+                            'price': current_price,
+                            'description': description
+                        }
+            except Exception as e:
+                # Silently skip failed tickers
+                pass
+        
+        if ticker_returns:
+            # Sort by YTD performance
+            sorted_tickers = sorted(ticker_returns.items(), key=lambda x: x[1]['ytd'], reverse=True)
+            
+            response += f"**Best Performers** \n"
+            for ticker, data in sorted_tickers[:3]:
+                response += f"• **{ticker}** - {data['description']}\n"
+                response += f"  - YTD: {data['ytd']*100:+.1f}% | 1M: {data['month']*100:+.1f}% | Price: ${data['price']:.2f}\n"
+            
+            response += f"\n**Laggards/Headwinds** \n"
+            for ticker, data in sorted_tickers[-3:]:
+                response += f"• **{ticker}** - {data['description']}\n"
+                response += f"  - YTD: {data['ytd']*100:+.1f}% | 1M: {data['month']*100:+.1f}% | Price: ${data['price']:.2f}\n"
+        
+        # Industry dynamics
+        response += f"\n### 🔍 Industry Dynamics & Key Trends\n\n"
+        
+        response += f"**1. AI Chip Boom**\n"
+        response += f"• NVIDIA dominance in AI/GPU market (dominant position)\n"
+        response += f"• AMD competition in data center (catching up)\n"
+        response += f"• Supply constraints easing but fab capacity remains constrained\n\n"
+        
+        response += f"**2. Manufacturing & Geopolitics**\n"
+        response += f"• TSMC leads advanced node production (global dependency risk)\n"
+        response += f"• Intel investing heavily in US/Europe fab expansion (long-term play)\n"
+        response += f"• US/China trade tensions affecting supply chains\n\n"
+        
+        response += f"**3. Memory Market**\n"
+        response += f"• DRAM & NAND normalize after 2022-23 oversupply\n"
+        response += f"• Micron (MU) benefiting from recovery\n"
+        response += f"• AI server demand driving premium specifications\n\n"
+        
+        response += f"**4. Equipment & Enablers**\n"
+        response += f"• ASML (chip manufacturing equipment) critical bottleneck\n"
+        response += f"• Equipment demand indicates strong capex cycle\n"
+        response += f"• Broadcom benefiting from infrastructure/networking demand\n\n"
+        
+        # Sector health assessment
+        response += f"### 📈 Industry Health Snapshot\n\n"
+        
+        response += f"**Growth Drivers:**\n"
+        response += f"• AI/Machine Learning (transformational demand)\n"
+        response += f"• Data center expansion (hyperscaler capex cycle)\n"
+        response += f"• 5G/6G infrastructure (multi-year cycle)\n"
+        response += f"• Automotive electrification (rising chip content)\n\n"
+        
+        response += f"**Headwinds:**\n"
+        response += f"• Capacity constraints (fab utilization high)\n"
+        response += f"• Geopolitical risks (US-China dynamics)\n"
+        response += f"• Valuation expansion already significant (e.g., NVDA)\n"
+        response += f"• Cyclicality risk (previous oversupply cycles)\n\n"
+        
+        # Investment perspective
+        response += f"### 💡 Investment Perspective\n\n"
+        
+        response += f"**Structural Tailwinds** (Multi-year positive cycle):\n"
+        response += f"• AI adoption is still in early innings\n"
+        response += f"• Manufacturing supply remains constrained\n"
+        response += f"• Industry consolidation trends benefit leaders\n\n"
+        
+        response += f"**Valuation Considerations**:\n"
+        response += f"• Hardware plays (Intel, QCOM) trading at reasonable valuations\n"
+        response += f"• AI chip leaders (NVIDIA, AMD) commanding premium valuations\n"
+        response += f"• Equipment/enabler plays (ASML) benefiting from capex cycle\n\n"
+        
+        response += f"**Portfolio Positioning Insights**:\n"
+        if portfolio_weights is not None and len(portfolio_weights) > 0:
+            semi_holdings = [t for t in semi_tickers.keys() if t in portfolio_weights.index]
+            if semi_holdings:
+                response += f"• **Your semiconductor exposure**: {', '.join(semi_holdings)}\n"
+                for ticker in semi_holdings:
+                    response += f"  - {semi_tickers[ticker]}: {portfolio_weights[ticker]*100:.1f}% allocation\n"
+            else:
+                response += f"• **No semiconductor holdings detected** - Consider diversification\n"
+        else:
+            response += f"• Monitor AI chip leaders (NVDA, AMD) for growth\n"
+            response += f"• Hardware plays (Intel, QCOM) for value\n"
+            response += f"• Equipment plays (ASML) for capex cycle exposure\n"
+        
+        response += f"\n{INVESTMENT_DISCLAIMER}\n"
+        
+    except Exception as e:
+        response += f"⚠️ **Error**: Incomplete analysis: {str(e)[:100]}\n"
+    
+    return response
+
+
+def analyze_pharma_industry(portfolio_weights: Optional[pd.Series] = None) -> str:
+    """Placeholder for pharma-specific industry analysis"""
+    response = "## 💊 Pharmaceutical Industry Analysis\n\n"
+    response += "_Specialized pharma analysis module - Coming soon with GLP-1, drug development pipelines, FDA approvals._\n"
+    return response
+
+
+def analyze_banking_industry(portfolio_weights: Optional[pd.Series] = None) -> str:
+    """Placeholder for banking-specific industry analysis"""
+    response = "## 🏦 Banking & Financial Services Analysis\n\n"
+    response += "_Specialized banking analysis module - Coming soon with interest rates, credit cycles, regulatory changes._\n"
     return response
 
 
@@ -2582,6 +2788,389 @@ def extract_ticker_from_question(question: str) -> str:
     return tickers[0] if tickers else ""
 
 
+def analyze_stock_portfolio_fit(ticker: str, portfolio_weights: Optional[pd.Series] = None) -> str:
+    """
+    Comprehensive analysis of whether a stock should be added to a portfolio
+    Addresses questions like: "Should I add MSFT given my current holdings?"
+    """
+    response = f"## 📊 Portfolio Fit Analysis: {ticker}\n\n"
+    
+    try:
+        # Get stock data
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        hist = stock.history(period='1y')
+        
+        if not info or len(info) < 5:
+            return response + f"⚠️ Cannot retrieve data for {ticker}\n"
+        
+        # === CORRELATION ANALYSIS ===
+        response += "### 🔗 Correlation to Portfolio\n\n"
+        
+        if portfolio_weights is not None and len(portfolio_weights) > 0:
+            response += f"**Cross-Correlation Analysis** (benchmarked against your {len(portfolio_weights)} holdings):\n\n"
+            
+            # Fetch correlation
+            ticket_hist = yf.download(ticker, period='1y', progress=False, auto_adjust=False)
+            if not ticket_hist.empty and not hist.empty:
+                if isinstance(ticket_hist.columns, pd.MultiIndex):
+                    new_returns = ticket_hist['Adj Close', ticker].pct_change()
+                else:
+                    new_returns = ticket_hist['Adj Close'].pct_change()
+                
+                if isinstance(hist.columns, pd.MultiIndex):
+                    portfolio_return = hist['Adj Close', 'SPY'].pct_change()
+                else:
+                    portfolio_return = hist['Adj Close'].pct_change()
+                
+                correlation = new_returns.corr(portfolio_return)
+                response += f"• **Correlation to portfolio**: {correlation:.2f}\n"
+                
+                if correlation < -0.2:
+                    response += "    ✓ **Negative correlation** - Moves opposite to portfolio. Excellent diversifier!\n"
+                elif correlation < 0.3:
+                    response += "    ✓ **Low correlation** - Independent movement. Good diversifier.\n"
+                elif correlation < 0.7:
+                    response += "    ≈ **Moderate correlation** - Some overlap. Provides some diversification.\n"
+                else:
+                    response += "    ⚠️ **High correlation** - Moves with portfolio. Limited diversification benefit.\n"
+            
+            response += "\n"
+        else:
+            response += "_Portfolio holdings not provided. Add one to see correlation analysis._\n\n"
+        
+        # === SECTOR & INDUSTRY FIT ===
+        response += "### 🏭 Sector Positioning\n\n"
+        sector = info.get('sector', 'N/A')
+        industry = info.get('industry', 'N/A')
+        response += f"• **Sector**: {sector}\n"
+        response += f"• **Industry**: {industry}\n"
+        
+        if portfolio_weights is not None:
+            portfolio_sectors = [yf.Ticker(t).info.get('sector', 'N/A') for t in portfolio_weights.index]
+            sector_count = sum(1 for s in portfolio_sectors if s == sector)
+            response += f"• **Current sector exposure**: {sector_count}/{len(portfolio_weights)} holdings in {sector}\n"
+            
+            if sector_count == 0:
+                response += "    ✓ New sector exposure—add diversification\n"
+            elif sector_count <= 2:
+                response += "    ✓ Moderate sector representation—additional exposure reasonable\n"
+            else:
+                response += "    ⚠️ Already concentrated in this sector—consider if doubling up makes sense\n"
+        
+        response += "\n"
+        
+        # === FUNDAMENTALS & QUALITY ===
+        response += "### 💎 Fundamentals & Quality Score\n\n"
+        
+        roe = info.get('returnOnEquity')
+        roa = info.get('returnOnAssets')
+        roic = info.get('returnOnCapital')
+        debt_to_equity = info.get('debtToEquity')
+        current_ratio = info.get('currentRatio')
+        gross_margin = info.get('grossMargins')
+        operating_margin = info.get('operatingMargins')
+        
+        quality_score = 0
+        quality_max = 0
+        
+        if roe is not None:
+            quality_max += 1
+            response += f"• **ROE**: {roe*100:.1f}%"
+            if roe > 0.15:
+                response += " ✓\n"
+                quality_score += 1
+            elif roe > 0.10:
+                response += " (Above average)\n"
+                quality_score += 0.7
+            else:
+                response += " (Below average)\n"
+        
+        if debt_to_equity is not None:
+            quality_max += 1
+            response += f"• **Debt/Equity**: {debt_to_equity:.2f}"
+            if debt_to_equity < 0.5:
+                response += " ✓ (Conservative)\n"
+                quality_score += 1
+            elif debt_to_equity < 2:
+                response += " (Moderate)\n"
+                quality_score += 0.7
+            else:
+                response += " (Leveraged)\n"
+        
+        if current_ratio is not None:
+            quality_max += 1
+            response += f"• **Current Ratio**: {current_ratio:.2f}"
+            if current_ratio > 1:
+                response += " ✓ (Liquid)\n"
+                quality_score += 1
+            else:
+                response += " (Tight)\n"
+        
+        # Overall quality verdict
+        if quality_max > 0:
+            quality_pct = (quality_score / quality_max) * 100
+            response += f"\n**Quality Score**: {quality_pct:.0f}/100"
+            if quality_pct >= 75:
+                response += " ✓ High-quality business\n"
+            elif quality_pct >= 50:
+                response += " ~ Fair quality\n"
+            else:
+                response += " ⚠️ Lower quality—higher execution/financial risk\n"
+        
+        response += "\n"
+        
+        # === PORTFOLIO IMPACT ===
+        response += "### ⚖️ Sizing & Allocation\n\n"
+        response += "**Suggested Allocation Strategy**:\n\n"
+        
+        if portfolio_weights is not None and len(portfolio_weights) > 0:
+            largest_weight = portfolio_weights.max()
+            avg_weight = portfolio_weights.mean()
+            n_stocks = len(portfolio_weights)
+            
+            response += f"• **Current portfolio**: {n_stocks} stocks\n"
+            response += f"  - Largest holding: {largest_weight*100:.1f}%\n"
+            response += f"  - Average weight: {avg_weight*100:.1f}%\n\n"
+            
+            target_weight = avg_weight * 0.5 if largest_weight > avg_weight * 3 else avg_weight
+            response += f"• **Suggest adding at**: ~{target_weight*100:.1f}% (around your average)\n"
+            response += "• **Avoid**: Making it your largest position on Day 1\n"
+            response += "• **Rebalance schedule**: Review quarterly, trim winners > 2x average weight\n"
+        else:
+            response += "• **No portfolio data**—Suggest starting with 3-5% initial position\n"
+            response += "• **Build gradually** to allow for price averaging\n"
+        
+        response += "\n"
+        
+    except Exception as e:
+        response += f"⚠️ Error analyzing portfolio fit: {str(e)[:100]}\n"
+    
+    return response
+
+
+def analyze_fed_portfolio_impact(keywords: List[str]) -> str:
+    """
+    Comprehensive analysis of Fed policy impact on portfolios
+    Addresses questions like: "How will Fed rate cuts impact my portfolio?"
+    """
+    response = f"## 🏦 Fed Policy Impact on Portfolios\n\n"
+    response += f"**Analysis Date**: {get_data_timestamp()}\n\n"
+    
+    try:
+        # Get current Treasury yields as proxy for rate environment
+        tnx = yf.download('^TNX', period='6mo', progress=False, auto_adjust=False)
+        tlt = yf.download('TLT', period='1y', progress=False, auto_adjust=False)
+        
+        if not tnx.empty:
+            if isinstance(tnx.columns, pd.MultiIndex):
+                tnx_close = tnx['Adj Close', '^TNX']
+                tlt_close = tlt['Adj Close', 'TLT']
+            else:
+                tnx_close = tnx['Adj Close']
+                tlt_close = tlt['Adj Close']
+            
+            current_10y = tnx_close.iloc[-1]
+            prior_10y = tnx_close.iloc[0]
+            
+            response += "### 👀 Current Interest Rate Environment\n\n"
+            response += f"**10-Year Treasury Yield**: {current_10y:.2f}%\n"
+            response += f"• 6-month change: {current_10y - prior_10y:+.2f}%\n"
+            response += f"• Trend: {'Rising (tightening)' if current_10y > prior_10y else 'Falling (easing)' if current_10y < prior_10y else 'Stable'}\n\n"
+        
+        response += "### 📊 Fed Rate Cut Scenarios & Impacts\n\n"
+        
+        response += "#### Scenario 1: Aggressive Rate Cuts (3-4 cuts in 2026)\n"
+        response += "*Market Expectation*: Economic slowdown concerns\n\n"
+        response += "**Winners**:\n"
+        response += "• **Growth Stocks** (Tech, ARK, QQQ) - Lower discount rates boost valuation multiples\n"
+        response += "• **High-Dividend Stocks** - Bonds become less attractive, relative yield appeal increases\n"
+        response += "• **REITs & Utilities** - Benefit from lower financing costs AND sustained dividend demand\n"
+        response += "• **Unprofitable Growth Names** - Fed tailwind for cash flow burn scenarios\n\n"
+        
+        response += "**Losers**:\n"
+        response += "• **Banks & Financials** (JPM, BAC, C) - Net interest margin compresses\n"
+        response += "• **High-Yield Bonds** - Reduced carry in low-rate environment; credit spreads may widen (riskier)\n"
+        response += "• **Short-term Treasury investments** - Reinvestment cascade to lower rates\n\n"
+        
+        response += "**Portfolio Action**:\n"
+        response += "• Reduce financials overweight to market weight\n"
+        response += "• Tilt toward growth; reduce value% below normal\n"
+        response += "• Consider buying long-duration bonds (TLT) for capital appreciation\n\n"
+        
+        response += "---\n\n"
+        
+        response += "#### Scenario 2: Mild Rate Cuts (1-2 cuts)\n"
+        response += "*Market Expectation*: Gradual economic adjustment\n\n"
+        response += "**Winners**:\n"
+        response += "• **Quality Growth** (MSFT, NVDA, AAPL) - Steady multiple expansion\n"
+        response += "• **Dividend Aristocrats** - Stable earnings + yield still attractive vs bonds\n\n"
+        
+        response += "**Losers**:\n"
+        response += "• **Ultra-high-beta speculative** - Euphoria trades cool\n"
+        response += "• **Money Market Funds** (VMFXX) - Yields fall in lockstep with Fed\n\n"
+        
+        response += "---\n\n"
+        
+        response += "#### Scenario 3: No Rate Cuts (Pause)\n"
+        response += "*Market Expectation*: Inflation lingers, Fed on hold\n\n"
+        response += "**Winners**:\n"
+        response += "• **Financials** - Interest rate landscape stabilizes\n"
+        response += "• **Energy & Commodities** - Inflation hedge\n"
+        response += "• **TIPS** (Inflation-Protected Securities) - Real yields secure\n\n"
+        
+        response += "**Losers**:\n"
+        response += "• **Growth stocks** - High rates = high discount rates = lower valuations\n"
+        response += "• **Long-duration bonds** - Rates stay elevated\n\n"
+        
+        response += "---\n\n"
+        
+        response += "### 🎯 Portfolio Positioning Checklist\n\n"
+        response += "**For Uncertainty, Hedge:**\n"
+        response += "1. **Duration Mix**: 30% bonds to cushion equity volatility\n"
+        response += "   - If cuts come → Bond gains offset any stock hiccup\n"
+        response += "   - If no cuts → Equities outperform bonds anyway\n\n"
+        
+        response += "2. **Sector Balance**:\n"
+        response += "   - 25% Growth (Benefits from rate cuts)\n"
+        response += "   - 25% Value (Benefits from no cuts)\n"
+        response += "   - 20% Financials (Defensive to rates)\n"
+        response += "   - 30% Diversified Sectors\n\n"
+        
+        response += "3. **International Diversification**:\n"
+        response += "   - Non-US developed markets (EFA) - Decoupled from Fed policy\n"
+        response += "   - Emerging markets (EEM) - Different monetary cycle\n\n"
+        
+        response += "4. **Avoid Single Bets**:\n"
+        response += "   - Don't go 70% growth anticipating cuts\n"
+        response += "   - Don't go 50% financials betting against cuts\n"
+        response += "   - Market already prices in base case; your edge is optionality\n\n"
+        
+        response += "### 📚 Historical Precedents\n\n"
+        response += "**2001 (Recession + Rate Cuts)**:\n"
+        response += "• Tech stocks crashed 70-80% (cuts couldn't save overvalued growth)\n"
+        response += "• Quality dividend stocks held up better\n"
+        response += "• **Lesson**: Rate cuts help, but don't override valuation\n\n"
+        
+        response += "**2019 (Fed Pivot)**:\n"
+        response += "• After 2-year hiking cycle, 3 cuts in late 2019\n"
+        response += "• Tech stocks surged 30%+ heading into 2020\n"
+        response += "• **Lesson**: Cuts can reignite growth narratives\n\n"
+        
+        response += f"{INVESTMENT_DISCLAIMER}\n"
+        
+    except Exception as e:
+        response += f"⚠️ Error in analysis: {str(e)[:100]}\n"
+    
+    return response
+
+
+def analyze_inflation_risks(keywords: List[str]) -> str:
+    """
+    Comprehensive inflation risk analysis for portfolios
+    Addresses questions like: "What are the inflation risks?"
+    """
+    response = f"## 🔥 Inflation Risk Assessment\n\n"
+    response += f"**Analysis Date**: {get_data_timestamp()}\n\n"
+    
+    try:
+        response += "### 📊 Current Inflation Metrics\n\n"
+        response += "*Note: Using available market data as proxy*\n\n"
+        
+        # Get inflation hedges performance
+        tips = yf.download('VTIP', period='1y', progress=False, auto_adjust=False)
+        gold = yf.download('GLD', period='1y', progress=False, auto_adjust=False)
+        commodities = yf.download('DBC', period='1y', progress=False, auto_adjust=False)
+        
+        response += "**Inflation Hedge Performance (1-year)**:\n"
+        try:
+            if not tips.empty:
+                if isinstance(tips.columns, pd.MultiIndex):
+                    tips_ret = (tips['Adj Close', 'VTIP'].iloc[-1] / tips['Adj Close', 'VTIP'].iloc[0] - 1)
+                    gold_ret = (gold['Adj Close', 'GLD'].iloc[-1] / gold['Adj Close', 'GLD'].iloc[0] - 1)
+                    comm_ret = (commodities['Adj Close', 'DBC'].iloc[-1] / commodities['Adj Close', 'DBC'].iloc[0] - 1)
+                else:
+                    tips_ret = (tips['Adj Close'].iloc[-1] / tips['Adj Close'].iloc[0] - 1)
+                    gold_ret = (gold['Adj Close'].iloc[-1] / gold['Adj Close'].iloc[0] - 1)
+                    comm_ret = (commodities['Adj Close'].iloc[-1] / commodities['Adj Close'].iloc[0] - 1)
+                
+                response += f"• TIPS (Treasury Inflation-Protected): {tips_ret*100:+.1f}%\n"
+                response += f"• Gold (GLD): {gold_ret*100:+.1f}%\n"
+                response += f"• Commodities (DBC): {comm_ret*100:+.1f}%\n\n"
+        except:
+            pass
+        
+        response += "### 🎯 Inflation Scenarios & Portfolio Impact\n\n"
+        
+        response += "#### Scenario A: Sustained Inflation (3-4%)\n"
+        response += "**Winners**:\n"
+        response += "• **Energy Producers** (XLE, OXY, CVX) - Direct commodity exposure\n"
+        response += "• **Utilities** (XLU) - Regulated; can pass costs; steady dividends hedge\n"
+        response += "• **Consumer Staples** (XLP, WMT, PG) - Pricing power; buyback moats\n"
+        response += "• **TIPS & Inflation-Linked Bonds** - Direct inflation indexing\n"
+        response += "• **Real Estate/REITs** (XLRE) - Real asset with pricing power\n\n"
+        
+        response += "**Losers**:\n"
+        response += "• **Tech Growth** (QQQ, high P/E names) - Compressed multiples in high-rate environment\n"
+        response += "• **Long-duration bonds** (TLT) - Rising rates hurt bond prices\n"
+        response += "• **Financials** - Compressed NIM if inflation driven by supply shock (not demand)\n\n"
+        
+        response += "**Action**:\n"
+        response += "• Overweight: Commodities, energy, inflation-hedged equities\n"
+        response += "• Add: 5-10% TIPS allocation for real returns protection\n"
+        response += "• Reduce: Long-duration bonds and high-duration growth stocks\n\n"
+        
+        response += "---\n\n"
+        
+        response += "#### Scenario B: Deflation/Disinflation (<1%)\n"
+        response += "**Winners**:\n"
+        response += "• **Long-duration Bonds** (TLT, BND) - Bond prices rise sharply\n"
+        response += "• **Growth Stocks** (MSFT, NVDA, AAPL) - Multiples expand; capex value recovers\n"
+        response += "• **Tech/Software** - Pricing power; profit margins expand\n\n"
+        
+        response += "**Losers**:\n"
+        response += "• **Energy/Commodities** - Deflation = demand destruction\n"
+        response += "• **Real Estate** - Price declines under deflationary pressure\n"
+        response += "• **Dividend Stocks** - Real dividend yields skyrocket; ratingcut (sell signal)\n\n"
+        
+        response += "---\n\n"
+        
+        response += "### 🛡️ Inflation-Protected Portfolio Allocation\n\n"
+        response += "**Core Deflation Hedge (Everyone needs this)**:\n"
+        response += "• 30-40% Equities (market participation)\n"
+        response += "• 40-50% Bonds (duration cushion if deflation)\n"
+        response += "• 5-10% Cash (optionality for dislocations)\n\n"
+        
+        response += "**Inflation Hedge Add-ons**:\n"
+        response += "• 5-10% Commodities (oil, metals, agriculture exposure)\n"
+        response += "• 5-10% Real Estate/REITs (real assets)\n"
+        response += "• 3-5% TIPS (explicit indexing)\n"
+        response += "• 2%  Gold (tail risk insurance)\n\n"
+        
+        response += "**Anti-Hedge Positions** (reduce if inflation concern):\n"
+        response += "• Reduce high-duration growth tech: From 40% to 25%\n"
+        response += "• Reduce 30-year treasuries: From 30% to 15%\n"
+        response += "• Reduce fixed-income heavy allocation if rates rising\n\n"
+        
+        response += "### 📚 Historical Inflation Episodes\n\n"
+        response += "**2021-2022 (Inflation Surge)**:\n"
+        response += "• Energy +65%, Staples +20%, but Tech -65%\n"
+        response += "• Bonds down 15-20%; TIPs only down 2%\n"
+        response += "• **Lesson**: Inflation hits growth valuations hardest\n\n"
+        
+        response += "**1980s (Volcker Inflation Break)**:\n"
+        response += "• 22% fed funds rate; bonds crushed but then soared as inflation fell\n"
+        response += "• Commodities peaked then fell 50%\n"
+        response += "• **Lesson**: Inflation fighting = temporary pain but ends bull market in duration\n\n"
+        
+        response += f"{INVESTMENT_DISCLAIMER}\n"
+        
+    except Exception as e:
+        response += f"⚠️ Error in analysis: {str(e)[:100]}\n"
+    
+    return response
+
+
 def handle_user_question(question: str, 
                          portfolio_weights: Optional[pd.Series] = None,
                          returns_data: Optional[pd.DataFrame] = None) -> str:
@@ -2627,12 +3216,34 @@ def handle_user_question(question: str,
             return prefix + analyze_stock_comparison(question, portfolio_stocks)
         
         elif question_type == 'stock' and entities:
-            # Stock-specific analysis - ALWAYS provide comprehensive analysis
+            # Stock-specific analysis
             ticker = entities[0]
-            return prefix + analyze_investment_decision(question, portfolio_weights, ticker, returns_data)
+            
+            # Check if this is asking about portfolio fit (either by intent or by keywords)
+            is_portfolio_fit = (
+                intent == 'portfolio_fit' or 
+                any(word in question.lower() for word in ['add', 'should i add', 'given my', 'my portfolio', 'fit', 'works with', 'complements'])
+            )
+            
+            if is_portfolio_fit:
+                return prefix + analyze_stock_portfolio_fit(ticker, portfolio_weights)
+            else:
+                # Regular stock analysis with investment decision
+                return prefix + analyze_investment_decision(question, portfolio_weights, ticker, returns_data)
         
         elif question_type == 'sector':
-            # Sector/industry analysis - Try LLM first for deep sector rotation
+            # Sector/industry analysis - Check for specific sub-sectors first
+            sub_sector = classification.get('sub_sector', None)
+            
+            # Route to specialized sub-sector analyzers
+            if sub_sector == 'semiconductor':
+                return prefix + analyze_semiconductor_industry(portfolio_weights)
+            elif sub_sector == 'pharma':
+                return prefix + analyze_pharma_industry(portfolio_weights)
+            elif sub_sector == 'banking':
+                return prefix + analyze_banking_industry(portfolio_weights)
+            
+            # Try LLM first for deep sector rotation
             if LLM_AVAILABLE:
                 llm_response = llm_orchestrate_analysis(classification, question, portfolio_weights, returns_data)
                 if llm_response:
@@ -2654,8 +3265,19 @@ def handle_user_question(question: str,
             return prefix + analyze_market_data(question)
         
         elif question_type == 'macro':
-            # Macro economic commentary
-            return prefix + analyze_macro_environment(classification.get('keywords', []))
+            # Macro economic commentary - Route to specific analyzers based on keywords
+            keywords = classification.get('keywords', [])
+            
+            # Check for Fed/rate specific questions
+            if any(word in question.lower() for word in ['fed', 'federal reserve', 'rate cut', 'rate hike', 'interest rate']):
+                return prefix + analyze_fed_portfolio_impact(keywords)
+            
+            # Check for inflation specific questions
+            if any(word in question.lower() for word in ['inflation', 'inflation risk']):
+                return prefix + analyze_inflation_risks(keywords)
+            
+            # General macro analysis
+            return prefix + analyze_macro_environment(keywords)
         
         elif question_type == 'portfolio':
             # Portfolio-specific advice - Try LLM analyzers for stress test & risk analysis

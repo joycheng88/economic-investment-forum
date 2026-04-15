@@ -51,7 +51,8 @@ from llm import (
     estimate_portfolio_return
 )
 from chatbot import analyze_investment_decision, extract_ticker_from_question, handle_user_question
-from modeling import DCFValuation, ComparableCompanies, ValuationReport
+from modeling import ComparableCompanies, ValuationReport
+from valuation import dcf_valuation, comparable_companies_analysis
 
 # Page config
 st.set_page_config(
@@ -61,18 +62,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize session state
-if 'data_loaded' not in st.session_state:
-    st.session_state.data_loaded = False
-if 'selected_stocks' not in st.session_state:
-    st.session_state.selected_stocks = [
-        "SHV", "BRK-B", "JNJ", "MKL", "IBN", "UNH", "MSFT", "HDB",
-        "TSM", "HCC", "TDW", "KWEB", "GOOG", "IBKR", "NVDA", "COIN",
-        "BN", "SHOP", "META", "UBER", "ZETA", "AMR", "HOOD", "AMZN",
-        "VAL", "NE", "JPM", "EFX"
-    ]
-if 'custom_sector_mapping' not in st.session_state:
-    st.session_state.custom_sector_mapping = {}  # Store sector assignments for custom tickers
+# ==================== CONSTANTS & PAGE DEFINITIONS ====================
 
 # All available stocks (28)
 ALL_STOCKS = [
@@ -81,6 +71,21 @@ ALL_STOCKS = [
     "BN", "SHOP", "META", "UBER", "ZETA", "AMR", "HOOD", "AMZN",
     "VAL", "NE", "JPM", "EFX"
 ]
+
+# ==================== SESSION STATE INITIALIZATION ====================
+
+def initialize_session_state():
+    """Centralized session state initialization"""
+    defaults = {
+        'data_loaded': False,
+        'selected_stocks': ALL_STOCKS.copy(),
+        'custom_sector_mapping': {},
+        'page': 'Home',
+    }
+    
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
 # Cache risk-free rate to avoid repeated fetches
 @st.cache_data(ttl=3600)  # Cache for 1 hour
@@ -93,10 +98,11 @@ def fetch_risk_free_rate():
 RISK_FREE_RATE = fetch_risk_free_rate()
 
 # Add Streamlit-level caching for valuation results (OPTIMIZATION)
-@st.cache_data(ttl=1800)  # Cache for 30 minutes
+@st.cache_data(ttl=600)  # Cache for 10 minutes (reduced for faster updates)
 def run_dcf_cached(ticker, wacc, terminal_growth, forecast_years, risk_free_rate, 
-                   market_risk_premium, tax_rate, cost_of_debt, revenue_growth=None):
-    """Cached DCF analysis to avoid redundant calculations"""
+                   market_risk_premium, tax_rate, cost_of_debt, revenue_growth=None,
+                   organic_growth_only=False, apply_margin_haircut=False, margin_haircut_pct=0.18):
+    """Cached DCF analysis with sector-aware routing"""
     from valuation import dcf_valuation
     return dcf_valuation(
         ticker=ticker,
@@ -107,10 +113,13 @@ def run_dcf_cached(ticker, wacc, terminal_growth, forecast_years, risk_free_rate
         market_risk_premium=market_risk_premium,
         tax_rate=tax_rate,
         cost_of_debt=cost_of_debt,
-        revenue_growth_rate=revenue_growth
+        revenue_growth_rate=revenue_growth,
+        organic_growth_only=organic_growth_only,
+        apply_margin_haircut=apply_margin_haircut,
+        margin_haircut_pct=margin_haircut_pct
     )
 
-@st.cache_data(ttl=1800)  # Cache for 30 minutes
+@st.cache_data(ttl=600)  # Cache for 10 minutes
 def run_comps_cached(ticker, auto_find_peers=True, peer_tickers=None):
     """Cached comps analysis to avoid redundant peer screening"""
     from valuation import comparable_companies_analysis
@@ -1822,36 +1831,251 @@ def page_ml_ranking():
     **Output**: 0-100 ranking score + 1-month return prediction + buy/sell recommendation
     """)
     
+    # ===== ML SCORE METHODOLOGY EXPLAINER =====
+    with st.expander("📊 How is the ML Score Calculated?", expanded=False):
+        st.markdown("### Score Breakdown (0-100 Scale)")
+        
+        # Visual breakdown of score components
+        score_breakdown = {
+            "Technical Analysis": 40,
+            "Fundamental Analysis": 40,
+            "Risk Assessment": 20,
+        }
+        
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            st.markdown("#### Score Components")
+            for component, points in score_breakdown.items():
+                st.metric(component, f"{points} points")
+        
+        with col2:
+            # Pie chart of score components
+            fig = px.pie(
+                values=list(score_breakdown.values()),
+                names=list(score_breakdown.keys()),
+                title="Score Composition",
+                color_discrete_map={
+                    "Technical Analysis": "#636EFA",
+                    "Fundamental Analysis": "#EF553B",
+                    "Risk Assessment": "#00CC96",
+                }
+            )
+            fig.update_layout(height=300, showlegend=True)
+            st.plotly_chart(fig, use_container_width=True)
+        
+        st.divider()
+        
+        # Detailed methodology
+        st.markdown("#### 1️⃣ Technical Analysis (40 points)")
+        st.markdown("""
+        Measures price momentum and chart patterns:
+        
+        | Indicator | What It Measures | Bullish 🟢 | Bearish 🔴 |
+        |-----------|------------------|-----------|-----------|
+        | **RSI (14)** | Overbought/Oversold | RSI < 30 (oversold) | RSI > 70 (overbought) |
+        | **Momentum (1M)** | Price trend strength | > +5% return | < -5% return |
+        | **Moving Averages** | Trend direction | Price > SMA20 > SMA50 | Price < SMA20 < SMA50 |
+        | **MACD** | Trend momentum | Above signal line | Below signal line |
+        | **Bollinger Bands** | Volatility extremes | Near lower band | Near upper band |
+        
+        **How it works:** Each indicator contributes points based on market conditions. 
+        Oversold stocks (RSI < 30) get +8 points, overbought (RSI > 70) get -8 points, neutral gets 0.
+        """)
+        
+        st.markdown("#### 2️⃣ Fundamental Analysis (40 points)")
+        st.markdown("""
+        Measures company financial health and value:
+        
+        | Category | Metric | Weight | Bullish 🟢 | Bearish 🔴 |
+        |----------|--------|--------|-----------|-----------|
+        | **Valuation** | P/E Ratio | 10 pts | 10-20 range (+5) | > 30 (-5) |
+        | **Growth** | Earnings Growth | 10 pts | YoY > 15% (+8) | Negative (-5) |
+        | **Profitability** | ROE | 10 pts | > 20% (+8) | < 0% (-8) |
+        | **Income** | Dividend Yield | 10 pts | > 3% (+5) | None (0) |
+        
+        **How it works:** Companies with low P/E (cheaper), high growth, strong ROE, and dividends score higher.
+        This identifies undervalued companies with strong fundamentals.
+        """)
+        
+        st.markdown("#### 3️⃣ Risk Assessment (20 points)")
+        st.markdown("""
+        Measures volatility and systematic risk:
+        
+        | Risk Factor | Impact | Safe 🟢 | Risky 🔴 |
+        |-------------|--------|---------|---------|
+        | **Volatility (Annual)** | Price swings | < 15% (+5) | > 40% (-10) |
+        | **Beta** | Market sensitivity | < 0.8 (+3) | > 1.3 (-3) |
+        
+        **How it works:** Stocks that move less than the market and have lower volatility are safer bets.
+        High volatility adds risk premium. We encourage measured risk, not extreme risks.
+        """)
+        
+        st.divider()
+        
+        st.markdown("#### 📈 Recommendation Thresholds")
+        st.markdown("""
+        Based on the 0-100 score, we provide these recommendations:
+        
+        | Score Range | Recommendation | Signal | Action |
+        |-------------|----------------|--------|--------|
+        | **70-100** | 🚀 STRONG BUY | Excellent fundamentals + positive momentum | Add to portfolio |
+        | **60-69** | ✅ BUY | Good value with positive metrics | Consider buying |
+        | **40-59** | ⏸️ HOLD | Fairly valued, wait for better entry | Hold if owned |
+        | **20-39** | ⚠️ SELL | Weak fundamentals or negative momentum | Reduce position |
+        | **0-19** | 🔴 STRONG SELL | Poor metrics across the board | Exit/Avoid |
+        """)
+        
+        st.divider()
+        
+        st.markdown("#### 🔍 Example Score Calculation")
+        st.markdown("""
+        **How AAPL might score 75/100:**
+        
+        - **Technical (40 pts):**
+          - RSI 45 → +3 (neutral)
+          - Momentum +8% → +8 (strong)
+          - Price > SMA20 > SMA50 → +8 (uptrend)
+          - MACD positive → +3 (bullish)
+          - Bollinger Bands midrange → 0 (neutral)
+          - **Subtotal: 22 / 40 points**
+        
+        - **Fundamental (40 pts):**
+          - P/E 28 → +0 (reasonable)
+          - Earnings growth 12% → +3 (good)
+          - ROE 87% → +8 (excellent)
+          - Dividend 0.6% → +2 (modest)
+          - **Subtotal: 13 / 40 points**
+        
+        - **Risk (20 pts):**
+          - Volatility 24% → 0 (moderate)
+          - Beta 1.2 → -2 (slightly high)
+          - **Subtotal: -2 / 20 points**
+        
+        **Final Score: 22 + 13 - 2 = 33 → Scaled to 75/100**
+        
+        Result: **BUY** (Score 70+)
+        """)
+        
+        st.markdown("#### ⚡ Key Insights")
+        st.markdown("""
+        - **Balance Matters:** Combining technical + fundamental analysis reduces bias from any single metric
+        - **Dynamic:** Scores update daily as prices and fundamentals change
+        - **Not Perfect:** ML scores are probabilistic estimates, not guaranteed outcomes
+        - **Context:** Always validate with your own research and risk tolerance
+        - **Volatile Stocks:** High momentum stocks may have inflated scores; check volatility
+        - **Value Traps:** Low P/E doesn't always mean cheap; check the WHY
+        """)
+    
     col1, col2 = st.columns([2, 1])
     
     with col1:
         # Stock selection
         st.markdown("### Select Stocks to Rank")
-        selected_tickers = st.multiselect(
-            "Choose stocks (or use your portfolio):",
-            options=ALL_STOCKS,
-            default=[],
-            key="ml_stock_selection"
-        )
         
-        # Use portfolio button
-        col_a, col_b = st.columns(2)
-        with col_a:
-            if st.button("📊 Use My Portfolio", use_container_width=True):
-                selected_tickers = st.session_state.selected_stocks
-                st.rerun()
+        # Tabs for different input methods
+        select_tab1, select_tab2 = st.tabs(["Preset Lists", "Custom Symbols"])
         
-        with col_b:
-            if st.button("⭐ Top 10 Holdings", use_container_width=True):
-                selected_tickers = ALL_STOCKS[:10]
-                st.rerun()
+        selected_tickers = []
+        
+        with select_tab1:
+            # Use preset buttons
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                if st.button("📊 My Portfolio", use_container_width=True, key="use_portfolio_btn"):
+                    st.session_state.ml_selected_tickers = st.session_state.selected_stocks
+                    st.rerun()
+            
+            with col_b:
+                if st.button("⭐ Top 10", use_container_width=True, key="use_top10_btn"):
+                    st.session_state.ml_selected_tickers = ALL_STOCKS[:10]
+                    st.rerun()
+            
+            with col_c:
+                if st.button("🌍 All Stocks", use_container_width=True, key="use_all_btn"):
+                    st.session_state.ml_selected_tickers = ALL_STOCKS
+                    st.rerun()
+            
+            if st.session_state.get('ml_selected_tickers'):
+                st.info(f"✓ Loaded {len(st.session_state.ml_selected_tickers)} stocks")
+            
+            # Multiselect from preset list
+            selected_tickers = st.multiselect(
+                "Or select from list:",
+                options=ALL_STOCKS,
+                default=st.session_state.get('ml_selected_tickers', []),
+                key="ml_stock_selection",
+                help="Choose specific stocks from our curated list"
+            )
+        
+        with select_tab2:
+            st.markdown("#### Add Custom Tickers")
+            st.info("📌 You can now analyze ANY stock from NYSE, NASDAQ, or major exchanges!")
+            
+            # Text input for custom tickers
+            custom_input = st.text_area(
+                "Enter stock symbols (comma-separated):",
+                placeholder="e.g., TSLA, GOOGL, MSFT, AMZN, META, NVDA\nOr search sector: TECH, HEALTHCARE, FINANCE, etc.",
+                height=100,
+                key="ml_custom_tickers_input",
+                help="Enter tickers from any US stock exchange"
+            )
+            
+            if custom_input:
+                # Parse custom input
+                custom_tickers = [t.strip().upper() for t in custom_input.split(',') if t.strip()]
+                selected_tickers = custom_tickers if custom_tickers else selected_tickers
+                
+                st.success(f"✓ Ready to analyze {len(custom_tickers)} custom stocks")
+            
+            # Quick sector shortcuts
+            st.markdown("#### Or select by sector:")
+            sector_col1, sector_col2, sector_col3 = st.columns(3)
+            
+            sector_presets = {
+                "🖥️ Tech": ["AAPL", "MSFT", "GOOGL", "META", "NVDA", "TSLA", "AMD", "INTC"],
+                "🏥 Healthcare": ["JNJ", "UNH", "PFE", "ABBV", "TMO", "LLY", "MRK", "AMGN"],
+                "💰 Finance": ["JPM", "BAC", "WFC", "GS", "MS", "BLK", "SCHW", "AXP"],
+                "🏪 Retail": ["AMZN", "WMT", "TM", "HD", "MCD", "SBUX", "NKE", "TPR"],
+                "⚡ Energy": ["XOM", "CVX", "COP", "EOG", "MPC", "PSX", "VLO", "OXY"],
+                "🏭 Industrial": ["BA", "CAT", "MMM", "HON", "RTX", "GE", "LMT", "NOC"],
+            }
+            
+            selected_sector = None
+            with sector_col1:
+                if st.button("🖥️ Technology", use_container_width=True, key="sector_tech"):
+                    selected_sector = sector_presets["🖥️ Tech"]
+            with sector_col2:
+                if st.button("🏥 Healthcare", use_container_width=True, key="sector_health"):
+                    selected_sector = sector_presets["🏥 Healthcare"]
+            with sector_col3:
+                if st.button("💰 Finance", use_container_width=True, key="sector_finance"):
+                    selected_sector = sector_presets["💰 Finance"]
+            
+            with sector_col1:
+                if st.button("🏪 Retail", use_container_width=True, key="sector_retail"):
+                    selected_sector = sector_presets["🏪 Retail"]
+            with sector_col2:
+                if st.button("⚡ Energy", use_container_width=True, key="sector_energy"):
+                    selected_sector = sector_presets["⚡ Energy"]
+            with sector_col3:
+                if st.button("🏭 Industrial", use_container_width=True, key="sector_industrial"):
+                    selected_sector = sector_presets["🏭 Industrial"]
+            
+            if selected_sector:
+                selected_tickers = selected_sector
+                st.session_state.ml_selected_sector = selected_sector
+                st.success(f"✓ Selected {len(selected_sector)} sector stocks")
     
     with col2:
         st.markdown("### Quick Stats")
         if selected_tickers:
             st.metric("Selected Stocks", len(selected_tickers))
+            st.markdown(f"**Tickers:** {', '.join(selected_tickers[:5])}")
+            if len(selected_tickers) > 5:
+                st.caption(f"+{len(selected_tickers) - 5} more...")
         else:
-            st.warning("Select stocks to analyze")
+            st.warning("🔍 Select stocks to analyze")
     
     if selected_tickers:
         with st.spinner("🔄 Analyzing stocks with ML model..."):
@@ -1891,6 +2115,31 @@ def page_ml_ranking():
                             "momentum_1m": st.column_config.TextColumn("Momentum", width="100px"),
                         }
                     )
+                    
+                    # Explanation of columns
+                    with st.expander("📖 Column Explanations"):
+                        col_exp1, col_exp2 = st.columns(2)
+                        
+                        with col_exp1:
+                            st.markdown("**ML Score** (0-100)")
+                            st.caption("Composite score based on 40 technical + 40 fundamental + 20 risk factors. Higher = Better opportunity.")
+                            
+                            st.markdown("**Recommendation**")
+                            st.caption("Action: STRONG BUY (70+), BUY (60-69), HOLD (40-59), SELL (20-39), STRONG SELL (<20)")
+                            
+                            st.markdown("**Predicted 1M Return**")
+                            st.caption("Estimated 1-month forward return based on price momentum and technical indicators.")
+                        
+                        with col_exp2:
+                            st.markdown("**RSI (Relative Strength Index)**")
+                            st.caption("0-100 measure of momentum. <30 = Oversold (potential buy), >70 = Overbought (potential sell), 30-70 = Normal")
+                            
+                            st.markdown("**Momentum (1M)**")
+                            st.caption("1-month price change trend. Positive = Uptrend, Negative = Downtrend")
+                            
+                            st.markdown("**Rank**")
+                            st.caption("Position in the ranking. Rank 1 = highest score, best opportunity")
+                    
                     
                     # Visualization tabs
                     tab1, tab2, tab3 = st.tabs(["📈 Scores", "🎯 Recommendations", "📊 Features"])
@@ -2017,6 +2266,13 @@ def page_ml_ranking():
                     # Score Explanation Breakdown
                     st.markdown("### 🔍 What's Driving This Score?")
                     
+                    st.markdown("""
+                    Below are the factors contributing to this stock's ML score. The analysis combines:
+                    - **✅ Bullish Factors** - Reasons to be positive (add points)
+                    - **⚠️ Bearish Factors** - Reasons for caution (subtract points)  
+                    - **➖ Neutral Factors** - Mixed or normal signals (no impact)
+                    """)
+                    
                     if 'explanation' in stock and stock['explanation'] is not None:
                         explanation = stock['explanation']
                         
@@ -2057,18 +2313,118 @@ def page_modeling():
     st.subheader("⚙️ Configure Analysis Parameters")
     
     col1, col2 = st.columns(2)
+    
+    # Initialize ticker variable
+    valuation_ticker = st.session_state.get('valuation_ticker', '')
+    
     with col1:
         # Stock selection
-        valuation_source = st.radio("Stock Source", ["From Portfolio", "Custom Ticker"], key="model_source")
+        st.markdown("### 📊 Select Stock for DCF Analysis")
+        st.info("💡 You can now analyze ANY stock from NYSE, NASDAQ, or any major exchange!")
         
-        if valuation_source == "From Portfolio":
-            if len(st.session_state.selected_stocks) > 0:
-                valuation_ticker = st.selectbox("Select Stock", st.session_state.selected_stocks, key="model_ticker_select")
+        # Tabs for different input methods
+        source_tab1, source_tab2 = st.tabs(["Preset Stocks", "Enter Custom Ticker"])
+        
+        with source_tab1:
+            st.markdown("#### Option 1: Choose from Portfolio or Presets")
+            
+            col_preset1, col_preset2 = st.columns(2)
+            
+            with col_preset1:
+                if st.button("📈 From My Portfolio", use_container_width=True, key="dcf_portfolio_btn"):
+                    if len(st.session_state.selected_stocks) > 0:
+                        st.session_state['dcf_selected_source'] = 'portfolio'
+                        st.rerun()
+                    else:
+                        st.warning("No stocks in portfolio")
+            
+            with col_preset2:
+                if st.button("⭐ S&P 500 Top 10", use_container_width=True, key="dcf_sp500_btn"):
+                    st.session_state['dcf_selected_source'] = 'sp500'
+                    st.rerun()
+            
+            # Show appropriate selector based on selection
+            if st.session_state.get('dcf_selected_source') == 'portfolio':
+                st.markdown("**From Portfolio:**")
+                if len(st.session_state.selected_stocks) > 0:
+                    # Use index parameter to restore previous selection from session state
+                    current_selection = st.session_state.get('valuation_ticker', '')
+                    try:
+                        current_index = st.session_state.selected_stocks.index(current_selection)
+                    except (ValueError, IndexError):
+                        current_index = 0
+                    
+                    valuation_ticker = st.selectbox(
+                        "Select Stock", 
+                        st.session_state.selected_stocks,
+                        index=current_index,
+                        key="model_ticker_select"
+                    )
+                    # Store in session state for persistence
+                    st.session_state['valuation_ticker'] = valuation_ticker
+                else:
+                    st.warning("📍 No stocks in portfolio")
+                    valuation_ticker = None
+            
+            elif st.session_state.get('dcf_selected_source') == 'sp500':
+                st.markdown("**Popular Tech & Large Cap:**")
+                sp500_top = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "BRK-B", "JNJ", "V"]
+                current_selection = st.session_state.get('valuation_ticker', '')
+                try:
+                    current_index = sp500_top.index(current_selection)
+                except (ValueError, IndexError):
+                    current_index = 0
+                
+                valuation_ticker = st.selectbox(
+                    "Select Stock", 
+                    sp500_top,
+                    index=current_index,
+                    key="model_ticker_sp500"
+                )
+                # Store in session state for persistence
+                st.session_state['valuation_ticker'] = valuation_ticker
+            
             else:
-                st.warning("📍 No stocks in portfolio. Please use 'Custom Ticker' or go to Portfolio Builder to add stocks.")
-                valuation_ticker = None
-        else:
-            valuation_ticker = st.text_input("Enter Ticker Symbol", value="AAPL", key="model_ticker_input").upper()
+                st.markdown("**From Curated List (28 stocks):**")
+                current_selection = st.session_state.get('valuation_ticker', '')
+                try:
+                    current_index = ALL_STOCKS.index(current_selection)
+                except (ValueError, IndexError):
+                    current_index = 0
+                
+                valuation_ticker = st.selectbox(
+                    "Select Stock", 
+                    ALL_STOCKS,
+                    index=current_index,
+                    key="model_ticker_curated"
+                )
+                # Store in session state for persistence
+                st.session_state['valuation_ticker'] = valuation_ticker
+        
+        with source_tab2:
+            st.markdown("#### Option 2: Enter ANY Ticker (NYSE, NASDAQ, etc.)")
+            
+            # Quick examples
+            st.markdown("**Examples:** TSLA, GOOGL, MSFT, AMZN, META, JPM, JNJ, V, UNH")
+            
+            # CRITICAL FIX: Pull from session state to retain value across reruns
+            ticker_input_value = st.session_state.get('valuation_ticker', '')
+            valuation_ticker = st.text_input(
+                "Enter Ticker Symbol",
+                value=ticker_input_value,
+                key="model_ticker_input",
+                placeholder="e.g., TSLA, NVDA, JPM, JNJ...",
+                help="Any stock ticker from NYSE, NASDAQ, AMEX, etc."
+            ).upper()
+            
+            if valuation_ticker:
+                st.success(f"✓ Ready to analyze {valuation_ticker}")
+                st.caption("💡 Tip: You can analyze any publicly traded company, not just those in our preset list!")
+        
+        # Store ticker in session state for persistence across reruns
+        if valuation_ticker:
+            st.session_state['valuation_ticker'] = valuation_ticker
+            st.session_state['last_valuation_ticker'] = valuation_ticker
     
     with col2:
         st.markdown("**Analysis Options**")
@@ -2141,9 +2497,15 @@ def page_modeling():
     
     st.markdown("---")
     
+    # ===== RESTORE TICKER FROM SESSION STATE =====
+    # Critical: Restore ticker value before button check
+    # (local variable is lost on Streamlit reruns)
+    if not valuation_ticker or valuation_ticker == '':
+        valuation_ticker = st.session_state.get('valuation_ticker', '')
+    
     # ===== RUN ANALYSIS =====
     if st.button("🔍 Run Valuation Analysis", use_container_width=True, key="model_run_button"):
-        if not valuation_ticker:
+        if not valuation_ticker or valuation_ticker.strip() == '':
             st.error("❌ Please enter or select a valid ticker symbol")
         else:
             try:
@@ -2163,17 +2525,21 @@ def page_modeling():
                     progress_bar.progress(25)
                     
                     try:
-                        dcf_analysis = DCFValuation(ticker=valuation_ticker)
-                        dcf_result = dcf_analysis.run_analysis(
+                        # Use improved valuation.py dcf_valuation function
+                        dcf_result = dcf_valuation(
+                            ticker=valuation_ticker,
                             wacc=wacc,
-                            terminal_growth=terminal_growth,
+                            terminal_growth_rate=terminal_growth,
                             forecast_years=int(forecast_years),
                             risk_free_rate=risk_free_rate,
                             market_risk_premium=market_risk_premium,
                             tax_rate=tax_rate,
                             cost_of_debt=cost_of_debt,
-                            revenue_growth=revenue_growth
+                            revenue_growth_rate=revenue_growth
                         )
+                        # Wrap result in success dict if using dcf_valuation
+                        if dcf_result and 'success' not in dcf_result:
+                            dcf_result = {'success': True, **dcf_result}
                         progress_bar.progress(60)
                     except Exception as e:
                         st.error(f"❌ DCF Analysis Error: {str(e)}")
@@ -2185,9 +2551,10 @@ def page_modeling():
                     progress_bar.progress(75)
                     
                     try:
-                        comps_analysis = ComparableCompanies(ticker=valuation_ticker)
-                        comps_result = comps_analysis.run_analysis(
-                            peer_tickers=peer_tickers,
+                        # Use valuation.py comparable_companies_analysis
+                        comps_result = comparable_companies_analysis(
+                            ticker=valuation_ticker,
+                            peer_tickers=peer_tickers if peer_tickers else None,
                             auto_find_peers=auto_find_peers
                         )
                         progress_bar.progress(90)
@@ -2443,6 +2810,9 @@ def page_modeling():
 # ==================== MAIN APP ====================
 
 def main():
+    # Initialize all session state variables first
+    initialize_session_state()
+    
     # Sidebar navigation
     with st.sidebar:
         st.markdown("# 📊 Portfolio Optimizer")
@@ -2469,6 +2839,16 @@ def main():
             "📚 Description": "Description"
         }
         selected_page = page_map.get(page, "Home")
+        
+        st.divider()
+        
+        # Cache management
+        st.markdown("### Cache Management")
+        if st.button("🔄 Clear Cache & Refresh", use_container_width=True):
+            st.cache_data.clear()
+            st.success("✅ Cache cleared! Refreshing...")
+            st.rerun()
+        st.caption("Clear cache if valuations look outdated")
         
         st.divider()
         

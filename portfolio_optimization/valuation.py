@@ -231,6 +231,178 @@ def fetch_financial_data(ticker: str, full_data: bool = True, timeout: int = 10)
     
     return _get_cached_or_fetch(cache_key, _fetch, timeout)
 
+def pe_valuation(ticker: str,
+                 peer_median_pe: Optional[float] = None,
+                 sector_median_pe: float = 13.0) -> Dict:
+    """
+    P/E Multiple-based valuation for Financial institutions (banks, insurance, etc.)
+    
+    Banks don't have traditional FCF flows - they hold capital reserves.
+    P/E multiple approach is more appropriate for financial institutions.
+    
+    Parameters:
+    -----------
+    ticker : str
+        Stock ticker symbol
+    peer_median_pe : float, optional
+        Use specific peer group median P/E. If None, uses sector_median_pe.
+    sector_median_pe : float
+        Sector median P/E to use (default 13.0 for banking)
+    """
+    try:
+        # Fetch target data
+        data = fetch_financial_data(ticker, full_data=True)
+        
+        if not data:
+            return {'success': False, 'error': f'Could not fetch data for {ticker}', 'ticker': ticker}
+        
+        # Validate data quality
+        is_valid, warning_msg = _validate_financial_data_quality(data)
+        if not is_valid:
+            return {'success': False, 'error': warning_msg, 'ticker': ticker}
+        
+        current_price = data['current_price']
+        
+        # Get market multiples
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        trailing_pe = info.get('trailingPE') or info.get('forwardPE') or sector_median_pe
+        trailing_pe = float(trailing_pe) if trailing_pe and trailing_pe > 0 else sector_median_pe
+        
+        # Use provided peer median or sector median
+        valuation_pe = peer_median_pe if peer_median_pe else sector_median_pe
+        
+        # Calculate intrinsic value using earnings
+        eps = info.get('epsTrailingTwelveMonths', 0)
+        if eps and eps > 0:
+            # Intrinsic value = EPS × Fair P/E
+            intrinsic_value = eps * valuation_pe
+        else:
+            # Fallback: use current price as proxy
+            intrinsic_value = current_price
+        
+        # Calculate upside/downside
+        upside = ((intrinsic_value / current_price) - 1) * 100 if current_price > 0 else None
+        
+        # Market cap and equity value
+        shares_outstanding = data['shares_outstanding']
+        equity_value = intrinsic_value * shares_outstanding if shares_outstanding > 0 else 0
+        
+        return {
+            'success': True,
+            'ticker': ticker,
+            'company_name': data['company_name'],
+            'sector': data['sector'],
+            'current_price': float(current_price),
+            'intrinsic_value': float(intrinsic_value),
+            'upside_pct': float(upside) if upside is not None else None,
+            'enterprise_value': 0.0,  # Not calculated for P/E method
+            'equity_value': float(equity_value),
+            'terminal_value': 0.0,  # Not applicable
+            'terminal_pv': 0.0,  # Not applicable
+            'net_debt': 0.0,  # Not calculated
+            'shares_outstanding': shares_outstanding,
+            'projections': [],  # Not applicable
+            'assumptions': {
+                'valuation_method': 'P/E Multiple',
+                'valuation_pe': valuation_pe,
+                'trailing_pe': trailing_pe,
+                'eps': float(eps) if eps else 0,
+                'note': 'Financial institution - using P/E method instead of FCF-DCF'
+            },
+            'financial_data': data
+        }
+    
+    except Exception as e:
+        return {'success': False, 'error': str(e), 'ticker': ticker}
+
+def pe_valuation(ticker: str,
+                 peer_median_pe: Optional[float] = None,
+                 sector_median_pe: float = 13.0) -> Dict:
+    """
+    P/E Multiple-based valuation for Financial institutions (banks, insurance, etc.)
+    
+    Banks don't have traditional FCF flows - they hold capital reserves.
+    P/E multiple approach is more appropriate for financial institutions.
+    
+    Parameters:
+    -----------
+    ticker : str
+        Stock ticker symbol
+    peer_median_pe : float, optional
+        Use specific peer group median P/E. If None, uses sector_median_pe.
+    sector_median_pe : float
+        Sector median P/E to use (default 13.0 for banking)
+    """
+    try:
+        # Fetch target data
+        data = fetch_financial_data(ticker, full_data=True)
+        
+        if not data:
+            return {'success': False, 'error': f'Could not fetch data for {ticker}', 'ticker': ticker}
+        
+        # Validate data quality
+        is_valid, warning_msg = _validate_financial_data_quality(data)
+        if not is_valid:
+            return {'success': False, 'error': warning_msg, 'ticker': ticker}
+        
+        current_price = data['current_price']
+        
+        # Get market multiples
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        trailing_pe = info.get('trailingPE') or info.get('forwardPE') or sector_median_pe
+        trailing_pe = float(trailing_pe) if trailing_pe and trailing_pe > 0 else sector_median_pe
+        
+        # Use provided peer median or sector median
+        valuation_pe = peer_median_pe if peer_median_pe else sector_median_pe
+        
+        # Calculate intrinsic value using earnings
+        eps = info.get('epsTrailingTwelveMonths', 0)
+        if eps and eps > 0:
+            # Intrinsic value = EPS × Fair P/E
+            intrinsic_value = eps * valuation_pe
+        else:
+            # Fallback: use current price as proxy
+            intrinsic_value = current_price
+        
+        # Calculate upside/downside
+        upside = ((intrinsic_value / current_price) - 1) * 100 if current_price > 0 else None
+        
+        # Market cap and equity value
+        shares_outstanding = data['shares_outstanding']
+        equity_value = intrinsic_value * shares_outstanding if shares_outstanding > 0 else 0
+        
+        return {
+            'success': True,
+            'ticker': ticker,
+            'company_name': data['company_name'],
+            'sector': data['sector'],
+            'current_price': float(current_price),
+            'intrinsic_value': float(intrinsic_value),
+            'upside_pct': float(upside) if upside is not None else None,
+            'enterprise_value': 0.0,  # Not calculated for P/E method
+            'equity_value': float(equity_value),
+            'terminal_value': 0.0,  # Not applicable
+            'terminal_pv': 0.0,  # Not applicable
+            'net_debt': 0.0,  # Not calculated
+            'shares_outstanding': shares_outstanding,
+            'projections': [],  # Not applicable
+            'assumptions': {
+                'valuation_method': 'P/E Multiple',
+                'valuation_pe': valuation_pe,
+                'trailing_pe': trailing_pe,
+                'eps': float(eps) if eps else 0,
+                'note': 'Financial institution - using P/E method instead of FCF-DCF'
+            },
+            'financial_data': data
+        }
+    
+    except Exception as e:
+        return {'success': False, 'error': str(e), 'ticker': ticker}
+
 
 def dcf_valuation(ticker: str, 
                   wacc: Optional[float] = None,
@@ -240,11 +412,60 @@ def dcf_valuation(ticker: str,
                   market_risk_premium: float = 0.07,
                   tax_rate: float = 0.21,
                   cost_of_debt: float = 0.05,
-                  revenue_growth_rate: Optional[float] = None) -> Dict:
+                  revenue_growth_rate: Optional[float] = None,
+                  organic_growth_only: bool = False,
+                  apply_margin_haircut: bool = False,
+                  margin_haircut_pct: float = 0.18,
+                  force_fcf_method: bool = False) -> Dict:
     """
-    OPTIMIZED DCF: Faster execution with smart fallbacks
+    SECTOR-AWARE VALUATION: Routes to appropriate method based on company sector
+    
+    - FINANCIAL institutions (banks, insurance): Uses P/E multiple method
+    - ALL OTHER sectors: Uses DCF (Discounted Cash Flow) method
+    
+    Optional Parameters for Conservative Assumptions:
+    --------------------------------------------------
+    organic_growth_only : bool (default False)
+        If True, caps revenue growth at 5-7% to exclude M&A-inflated growth.
+        Useful for companies with significant recent acquisitions (e.g., UNH, MSFT).
+        
+    apply_margin_haircut : bool (default False)
+        If True, applies a valuation haircut to account for margin compression risk.
+        Market often prices in earnings pressure that pure FCF projection misses.
+        
+    margin_haircut_pct : float (default 0.18)
+        Haircut percentage to apply (0.18 = 18% reduction). Only used if apply_margin_haircut=True.
+        
+    force_fcf_method : bool (default False)
+        Force FCF-DCF even for financial institutions (for testing).
     """
     try:
+        # ===== SECTOR-AWARE ROUTING =====
+        # Detect if this is a financial institution
+        data_initial = fetch_financial_data(ticker, full_data=True)
+        if not data_initial:
+            return {'success': False, 'error': f'Could not fetch data for {ticker}', 'ticker': ticker}
+        
+        sector = data_initial.get('sector', 'Unknown').lower()
+        
+        # Route to P/E method for financial institutions
+        if 'financial' in sector and not force_fcf_method:
+            # Banks, insurance companies, brokers: use P/E valuation
+            try:
+                stock = yf.Ticker(ticker)
+                info = stock.info
+                
+                # Sector-specific median P/E
+                sector_pe = 13.0  # Banking default
+                if 'insurance' in sector:
+                    sector_pe = 12.0
+                
+                return pe_valuation(ticker, sector_median_pe=sector_pe)
+            except Exception as e:
+                # If P/E method fails, fallback to FCF
+                pass
+        
+        # ===== FCF-DCF METHOD (for non-financial companies) =====
         # Fetch target data (with timeout)
         data = fetch_financial_data(ticker, full_data=True)
         
@@ -271,6 +492,16 @@ def dcf_valuation(ticker: str,
         # Estimate revenue growth if not provided
         if revenue_growth_rate is None:
             revenue_growth_rate = max(data.get('revenue_growth', 0.05), 0)
+        
+        # OPTIONAL: Apply organic growth cap to exclude M&A-inflated growth
+        original_revenue_growth = revenue_growth_rate
+        if organic_growth_only and revenue_growth_rate > 0.07:
+            # Cap at 5-7% organic growth (typical for mature companies)
+            # This filters out acquisition-driven growth spikes
+            revenue_growth_rate = 0.06
+            organic_growth_applied = True
+        else:
+            organic_growth_applied = False
         
         # Base FCF estimation with improved logic for capital-intensive companies
         base_revenue = data['revenue']
@@ -344,6 +575,13 @@ def dcf_valuation(ticker: str,
         
         intrinsic_value_per_share = equity_value / max(shares_outstanding, 0.0001)
         
+        # OPTIONAL: Apply margin compression haircut
+        original_intrinsic_value = intrinsic_value_per_share
+        if apply_margin_haircut:
+            # Apply haircut to account for market pricing in earnings compression
+            # (e.g., market is pricing in margin pressure not captured by FCF extrapolation)
+            intrinsic_value_per_share = intrinsic_value_per_share * (1 - margin_haircut_pct)
+        
         # Calculate upside/downside
         current_price = data['current_price']
         upside = ((intrinsic_value_per_share / current_price) - 1) * 100 if current_price > 0 else None
@@ -365,6 +603,8 @@ def dcf_valuation(ticker: str,
             'assumptions': {
                 'wacc': wacc,
                 'revenue_growth': revenue_growth_rate,
+                'revenue_growth_original': original_revenue_growth if organic_growth_only else None,
+                'organic_growth_applied': organic_growth_applied,
                 'terminal_growth': terminal_growth_rate,
                 'fcf_margin': fcf_margin,
                 'base_fcf': base_fcf,
@@ -375,6 +615,9 @@ def dcf_valuation(ticker: str,
                 'tax_rate': tax_rate,
                 'cost_of_debt': cost_of_debt,
                 'valuation_method': 'NOPAT-based' if use_nopat else 'FCF-based',
+                'margin_haircut_applied': apply_margin_haircut,
+                'margin_haircut_pct': margin_haircut_pct if apply_margin_haircut else None,
+                'intrinsic_value_before_haircut': original_intrinsic_value if apply_margin_haircut else None,
             },
             'financial_data': data
         }
