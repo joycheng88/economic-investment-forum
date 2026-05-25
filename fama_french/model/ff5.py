@@ -28,9 +28,15 @@ import numpy as np
 import statsmodels.api as sm
 from sklearn.model_selection import KFold
 import logging
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+MODULE_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = MODULE_DIR.parent
+DEFAULT_DATA_PATH = PROJECT_DIR / "output" / "fama_french.csv"
+DEFAULT_OUTPUT_DIR = PROJECT_DIR / "output"
 
 
 class FamaFrench5Analyzer:
@@ -38,13 +44,15 @@ class FamaFrench5Analyzer:
     Fama-French 5-Factor model analyzer.
     """
 
-    def __init__(self, data_path="fama_french.csv"):
+    def __init__(self, data_path=None):
         """
         Initialize FF5 analyzer with data
 
         Args:
             data_path: Path to fama_french.csv
         """
+        data_path = Path(data_path) if data_path is not None else DEFAULT_DATA_PATH
+
         logger.info("Loading Fama-French 5-Factor data...")
         self.df = pd.read_csv(data_path)
         self.df["Date"] = pd.to_datetime(self.df["Date"])
@@ -391,32 +399,39 @@ class FamaFrench5Analyzer:
     # EXPORT RESULTS
     # ========================================================================
 
-    def export_results(self, output_prefix="ff5"):
+    def export_results(self, output_prefix="ff5", output_dir=None):
         """Export FF5 results to CSV."""
         logger.info("Exporting FF5 results...")
+
+        output_dir = Path(output_dir) if output_dir is not None else DEFAULT_OUTPUT_DIR
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         # In-sample
         in_sample_daily = self.analyze_in_sample(frequency="daily")
         if not in_sample_daily.empty:
-            in_sample_daily.to_csv(f"{output_prefix}_in_sample_daily.csv", index=False)
-            logger.info(f"  ✓ {output_prefix}_in_sample_daily.csv")
+            daily_path = output_dir / f"{output_prefix}_in_sample_daily.csv"
+            in_sample_daily.to_csv(daily_path, index=False)
+            logger.info(f"  ✓ {daily_path}")
 
         in_sample_monthly = self.analyze_in_sample(frequency="monthly")
         if not in_sample_monthly.empty:
-            in_sample_monthly.to_csv(f"{output_prefix}_in_sample_monthly.csv", index=False)
-            logger.info(f"  ✓ {output_prefix}_in_sample_monthly.csv")
+            monthly_path = output_dir / f"{output_prefix}_in_sample_monthly.csv"
+            in_sample_monthly.to_csv(monthly_path, index=False)
+            logger.info(f"  ✓ {monthly_path}")
 
         # Out-of-sample (use daily data)
         oos = self.analyze_out_of_sample(frequency="daily")
         if not oos.empty:
-            oos.to_csv(f"{output_prefix}_out_of_sample.csv", index=False)
-            logger.info(f"  ✓ {output_prefix}_out_of_sample.csv")
+            oos_path = output_dir / f"{output_prefix}_out_of_sample.csv"
+            oos.to_csv(oos_path, index=False)
+            logger.info(f"  ✓ {oos_path}")
 
         # Model comparison (use daily data)
         comparison = self.compare_with_ff3_capm(frequency="daily")
         if not comparison.empty:
-            comparison.to_csv(f"{output_prefix}_model_comparison.csv", index=False)
-            logger.info(f"  ✓ {output_prefix}_model_comparison.csv")
+            comparison_path = output_dir / f"{output_prefix}_model_comparison.csv"
+            comparison.to_csv(comparison_path, index=False)
+            logger.info(f"  ✓ {comparison_path}")
 
         return in_sample_daily, in_sample_monthly, oos, comparison
 
@@ -447,7 +462,7 @@ class FamaFrench5Analyzer:
 
 def main():
     """Main execution: FF5 analysis"""
-    ff5 = FamaFrench5Analyzer("fama_french.csv")
+    ff5 = FamaFrench5Analyzer()
     ff5.export_results("ff5")
     ff5.print_summary()
 

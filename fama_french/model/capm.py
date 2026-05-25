@@ -27,9 +27,15 @@ import statsmodels.api as sm
 from sklearn.model_selection import KFold
 from scipy import stats
 import logging
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+MODULE_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = MODULE_DIR.parent
+DEFAULT_DATA_PATH = PROJECT_DIR / "output" / "fama_french.csv"
+DEFAULT_OUTPUT_DIR = PROJECT_DIR / "output"
 
 
 class CAPMAnalyzer:
@@ -37,13 +43,15 @@ class CAPMAnalyzer:
     CAPM (Capital Asset Pricing Model) analyzer for individual stocks and portfolios.
     """
 
-    def __init__(self, data_path="fama_french.csv"):
+    def __init__(self, data_path=None):
         """
         Initialize CAPM analyzer with data
 
         Args:
             data_path: Path to fama_french.csv
         """
+        data_path = Path(data_path) if data_path is not None else DEFAULT_DATA_PATH
+
         logger.info("Loading CAPM data...")
         self.df = pd.read_csv(data_path)
         self.df["Date"] = pd.to_datetime(self.df["Date"])
@@ -314,31 +322,37 @@ class CAPMAnalyzer:
     # EXPORT RESULTS
     # ========================================================================
 
-    def export_results(self, output_prefix="capm"):
+    def export_results(self, output_prefix="capm", output_dir=None):
         """Export CAPM results to CSV files."""
         logger.info(f"Exporting CAPM results...")
+
+        output_dir = Path(output_dir) if output_dir is not None else DEFAULT_OUTPUT_DIR
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         # In-sample daily
         in_sample_daily = self.analyze_in_sample(frequency="daily")
         if not in_sample_daily.empty:
-            in_sample_daily.to_csv(f"{output_prefix}_in_sample_daily.csv", index=False)
-            logger.info(f"  ✓ {output_prefix}_in_sample_daily.csv")
+            daily_path = output_dir / f"{output_prefix}_in_sample_daily.csv"
+            in_sample_daily.to_csv(daily_path, index=False)
+            logger.info(f"  ✓ {daily_path}")
         else:
             logger.warning(f"  ⚠ Skipping daily results - no data")
 
         # In-sample monthly
         in_sample_monthly = self.analyze_in_sample(frequency="monthly")
         if not in_sample_monthly.empty:
-            in_sample_monthly.to_csv(f"{output_prefix}_in_sample_monthly.csv", index=False)
-            logger.info(f"  ✓ {output_prefix}_in_sample_monthly.csv")
+            monthly_path = output_dir / f"{output_prefix}_in_sample_monthly.csv"
+            in_sample_monthly.to_csv(monthly_path, index=False)
+            logger.info(f"  ✓ {monthly_path}")
         else:
             logger.warning(f"  ⚠ Skipping monthly results - no data")
 
         # Out-of-sample (use daily data for cross-validation)
         oos = self.analyze_out_of_sample(frequency="daily")
         if not oos.empty:
-            oos.to_csv(f"{output_prefix}_out_of_sample.csv", index=False)
-            logger.info(f"  ✓ {output_prefix}_out_of_sample.csv")
+            oos_path = output_dir / f"{output_prefix}_out_of_sample.csv"
+            oos.to_csv(oos_path, index=False)
+            logger.info(f"  ✓ {oos_path}")
         else:
             logger.warning(f"  ⚠ Skipping out-of-sample results - no data")
 
@@ -369,7 +383,7 @@ class CAPMAnalyzer:
 
 def main():
     """Main execution: CAPM analysis"""
-    capm = CAPMAnalyzer("fama_french.csv")
+    capm = CAPMAnalyzer()
     capm.export_results("capm")
     capm.print_summary()
 

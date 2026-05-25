@@ -18,7 +18,7 @@ Data is merged and exported to fama_french.csv with the following structure:
 
 Output: fama_french.csv with multi-index columns for easy analysis
 
-Author: Emory Economic Investment Forum
+Author: Jiuyi (Joy) Cheng - Emory Economic Investment Forum
 Date: March 2026
 """
 
@@ -31,11 +31,15 @@ import io
 import logging
 from pathlib import Path
 import warnings
+from pathlib import Path
 
 warnings.filterwarnings("ignore")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+PROJECT_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = PROJECT_DIR / "output"
 
 
 class FamaFrenchDataFetcher:
@@ -82,7 +86,7 @@ class FamaFrenchDataFetcher:
         logger.info("Fetching Fama-French 5 factors from Ken French's library...")
 
         try:
-            # Download monthly 5-factor data directly from Ken French's site (ZIP file)
+            # Download monthly 5-factor data directly from Ken French's site
             url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_5_Factors_2x3_CSV.zip"
             
             import zipfile
@@ -426,13 +430,20 @@ class FamaFrenchDataFetcher:
     # 7. EXPORT TO CSV
     # ========================================================================
 
-    def export_to_csv(self, filepath="fama_french.csv"):
+    def export_to_csv(self, filepath=None):
         """
         Export merged data to CSV with both raw returns and excess returns.
 
         Args:
             filepath: Output CSV file path
         """
+        if filepath is None:
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            filepath = OUTPUT_DIR / "fama_french.csv"
+
+        filepath = Path(filepath)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+
         logger.info(f"Exporting data to {filepath}...")
 
         # Ensure data is merged
@@ -516,13 +527,12 @@ def main():
     fetcher.merge_all_data()
 
     # Export to CSV
-    csv_path = "fama_french.csv"
-    fetcher.export_to_csv(csv_path)
+    fetcher.export_to_csv()
 
     # Print summary
     fetcher.print_summary()
 
-    logger.info(f"✓ Complete! Data exported to {csv_path}")
+    logger.info(f"✓ Complete! Data exported to {OUTPUT_DIR / 'fama_french.csv'}")
 
 
 if __name__ == "__main__":

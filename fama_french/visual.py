@@ -20,11 +20,15 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.gridspec import GridSpec
 import warnings
+from pathlib import Path
 
 warnings.filterwarnings("ignore")
 
 plt.style.use("seaborn-v0_8-darkgrid")
 sns.set_palette("husl")
+
+PROJECT_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = PROJECT_DIR / "output"
 
 
 class FamaFrenchVisualizer:
@@ -32,13 +36,15 @@ class FamaFrenchVisualizer:
     Comprehensive visualization for CAPM, FF3, and FF5 model comparison.
     """
 
-    def __init__(self, data_path="fama_french.csv"):
+    def __init__(self, data_path=None):
         """
         Initialize visualizer
 
         Args:
             data_path: Path to fama_french.csv
         """
+        data_path = Path(data_path) if data_path is not None else OUTPUT_DIR / "fama_french.csv"
+
         self.df = pd.read_csv(data_path)
         self.df["Date"] = pd.to_datetime(self.df["Date"])
 
@@ -50,8 +56,8 @@ class FamaFrenchVisualizer:
     def _load_model_results(self, model_name):
         """Load model results from CSV files."""
         try:
-            in_sample = pd.read_csv(f"{model_name}_in_sample_monthly.csv")
-            oos = pd.read_csv(f"{model_name}_out_of_sample.csv")
+            in_sample = pd.read_csv(OUTPUT_DIR / f"{model_name}_in_sample_monthly.csv")
+            oos = pd.read_csv(OUTPUT_DIR / f"{model_name}_out_of_sample.csv")
             return {"in_sample": in_sample, "out_of_sample": oos}
         except Exception as e:
             print(f"Warning: Could not load {model_name} results: {e}")
@@ -524,7 +530,7 @@ class FamaFrenchVisualizer:
 
 def main():
     """Main execution: Generate all visualizations"""
-    visualizer = FamaFrenchVisualizer("fama_french.csv")
+    visualizer = FamaFrenchVisualizer()
     visualizer.generate_all()
 
 

@@ -6,49 +6,49 @@ A comprehensive Python implementation of CAPM, Fama-French 3-factor, and Fama-Fr
 
 ### Core Modules
 
-1. **fetch_data.py** (700+ lines)
+1. **fetch_data.py**
    - Multi-source data integration pipeline
    - **Sources:**
      - Ken French's 5-factor library: Mkt-RF, SMB, HML, RMW, CMA
      - yfinance: Individual stock prices (BAC, BLK, JPM, MS, MET, CG, CME)
      - FRED: 3-month Treasury Bill Rate (DGS3MO)
    - **Outputs:**
-     - `fama_french.csv`: Merged dataset with 1,205 daily observations
+     - `output/fama_french.csv`: Merged dataset with 1,205 daily observations
      - Daily and monthly frequency support
      - Excess returns computed for all assets
 
-2. **capm.py** (350+ lines)
+2. **model/capm.py**
    - Single-factor Capital Asset Pricing Model
    - **Analysis:**
      - In-sample: Full dataset regression with OLS
      - Out-of-sample: 5-fold cross-validation
      - Performance metrics: Sharpe ratio, Jensen's alpha, Information ratio, Treynor ratio
    - **Outputs:**
-     - `capm_in_sample_daily.csv`: In-sample daily results
-     - `capm_in_sample_monthly.csv`: In-sample monthly results (if available)
-     - `capm_out_of_sample.csv`: Cross-validation performance metrics
+    - `output/capm_in_sample_daily.csv`: In-sample daily results
+    - `output/capm_in_sample_monthly.csv`: In-sample monthly results (if available)
+    - `output/capm_out_of_sample.csv`: Cross-validation performance metrics
 
-3. **ff3.py** (450+ lines)
+3. **model/ff3.py**
    - Fama-French 3-factor model (Mkt-RF, SMB, HML)
    - **Analysis:**
      - Factor regression with all diagnostics
      - Factor significance testing vs CAPM
      - Cross-validation error metrics
    - **Outputs:**
-     - `ff3_in_sample_daily.csv`: In-sample regression results
-     - `ff3_factor_significance.csv`: SMB/HML joint significance test
-     - `ff3_out_of_sample.csv`: Out-of-sample prediction errors
+    - `output/ff3_in_sample_daily.csv`: In-sample regression results
+    - `output/ff3_factor_significance.csv`: SMB/HML joint significance test
+    - `output/ff3_out_of_sample.csv`: Out-of-sample prediction errors
 
-4. **ff5.py** (500+ lines)
+4. **model/ff5.py**
    - Fama-French 5-factor model (Mkt-RF, SMB, HML, RMW, CMA)
    - **Analysis:**
      - Full 5-factor regression
      - Comprehensive model comparison vs FF3 and CAPM
      - Cross-validation framework
    - **Outputs:**
-     - `ff5_in_sample_daily.csv`: In-sample regression results
-     - `ff5_model_comparison.csv`: R², AIC, BIC comparison table
-     - `ff5_out_of_sample.csv`: Cross-validation metrics
+    - `output/ff5_in_sample_daily.csv`: In-sample regression results
+    - `output/ff5_model_comparison.csv`: R², AIC, BIC comparison table
+    - `output/ff5_out_of_sample.csv`: Cross-validation metrics
 
 5. **visual.py** (500+ lines)
    - Comprehensive visualization and analysis framework
@@ -69,13 +69,13 @@ A comprehensive Python implementation of CAPM, Fama-French 3-factor, and Fama-Fr
 ```bash
 python fetch_data.py
 ```
-Generates: `fama_french.csv` (merged market data + factors + excess returns)
+Generates: `output/fama_french.csv` (merged market data + factors + excess returns)
 
 ### Step 2: Run Factor Models
 ```bash
-python capm.py      # Single-factor model
-python ff3.py       # 3-factor model with significance testing
-python ff5.py       # 5-factor model with full comparison
+python model/capm.py      # Single-factor model
+python model/ff3.py       # 3-factor model with significance testing
+python model/ff5.py       # 5-factor model with full comparison
 ```
 
 Each model generates:
@@ -88,11 +88,11 @@ Each model generates:
 ```bash
 python visual.py
 ```
-Creates: 6 analysis charts + summary table
+Creates: 6 analysis charts + summary table using CSVs from `output/`
 
 ## Data Structure
 
-### Input: fama_french.csv
+### Input: output/fama_french.csv
 - **Frequency:** Daily observations (1,205 rows)
 - **Price Data:** 7 financial stocks (BAC, BLK, JPM, MS, MET, CG, CME)
 - **Returns:** Daily log returns for each asset + equal-weight portfolio
