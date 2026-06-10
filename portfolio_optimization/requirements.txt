@@ -1,9 +1,0 @@
-pandas
-numpy
-scikit-learn
-cvxpy
-yfinance
-scipy
-streamlit>=1.28.0
-plotly>=5.14.0
-pytz

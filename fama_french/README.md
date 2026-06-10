@@ -25,7 +25,6 @@ A comprehensive Python implementation of CAPM, Fama-French 3-factor, and Fama-Fr
      - Performance metrics: Sharpe ratio, Jensen's alpha, Information ratio, Treynor ratio
    - **Outputs:**
     - `output/capm_in_sample_daily.csv`: In-sample daily results
-    - `output/capm_in_sample_monthly.csv`: In-sample monthly results (if available)
     - `output/capm_out_of_sample.csv`: Cross-validation performance metrics
 
 3. **model/ff3.py**
@@ -50,7 +49,7 @@ A comprehensive Python implementation of CAPM, Fama-French 3-factor, and Fama-Fr
     - `output/ff5_model_comparison.csv`: R², AIC, BIC comparison table
     - `output/ff5_out_of_sample.csv`: Cross-validation metrics
 
-5. **visual.py** (500+ lines)
+5. **visual.py**
    - Comprehensive visualization and analysis framework
    - **Visualizations:**
      - Efficiency frontier (risk-return scatter)
@@ -59,9 +58,6 @@ A comprehensive Python implementation of CAPM, Fama-French 3-factor, and Fama-Fr
      - Statistical significance heatmap (p-values)
      - Performance metrics comparison
      - Out-of-sample error analysis
-   - **Outputs:**
-     - 6 publication-quality PNG charts
-     - Summary comparison table
 
 ## Usage
 
@@ -84,7 +80,7 @@ Each model generates:
 - Model diagnostics (R², adj-R², AIC, BIC)
 - Risk-adjusted returns (Sharpe ratio, Jensen's alpha, Information ratio)
 
-### Step 3: Generate Visualizations (Optional)
+### Step 3: Generate Visualizations
 ```bash
 python visual.py
 ```

@@ -71,7 +71,7 @@ class FamaFrenchVisualizer:
         """
         Plot risk-return scatter showing efficiency frontier.
 
-        Points colored by model fit (R²)
+        Points colored by model fit (R-squared)
         """
         if self.ff5_results["in_sample"] is None:
             print("Skipping efficiency frontier - missing data")
